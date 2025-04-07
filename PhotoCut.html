@@ -1,0 +1,1105 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>簡單照片裁切器</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* 基本樣式 */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6; /* Tailwind gray-100 */
+        }
+        /* 裁切框樣式 */
+        .crop-box {
+            position: absolute;
+            border: 2px dashed #ffffff; /* 白色虛線 */
+            box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5); /* 半透明遮罩 */
+            cursor: move;
+            z-index: 10;
+        }
+        .crop-box.circle {
+            border-radius: 50%;
+        }
+        /* 裁切框控制點樣式 */
+        .handle {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            background-color: #ffffff; /* 白色 */
+            border: 1px solid #374151; /* Tailwind gray-700 */
+            border-radius: 50%;
+            z-index: 20;
+        }
+        .handle.tl { top: -6px; left: -6px; cursor: nwse-resize; }
+        .handle.tr { top: -6px; right: -6px; cursor: nesw-resize; }
+        .handle.bl { bottom: -6px; left: -6px; cursor: nesw-resize; }
+        .handle.br { bottom: -6px; right: -6px; cursor: nwse-resize; }
+        .handle.tm { top: -6px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
+        .handle.bm { bottom: -6px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
+        .handle.ml { top: 50%; left: -6px; transform: translateY(-50%); cursor: ew-resize; }
+        .handle.mr { top: 50%; right: -6px; transform: translateY(-50%); cursor: ew-resize; }
+
+        /* 隱藏 input[type=number] 的箭頭 */
+        input[type=number]::-webkit-inner-spin-button,
+        input[type=number]::-webkit-outer-spin-button {
+          -webkit-appearance: none;
+          margin: 0;
+        }
+        input[type=number] {
+          -moz-appearance: textfield; /* Firefox */
+        }
+
+        /* 訊息框樣式 */
+        .message-box {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 12px 20px;
+            border-radius: 8px;
+            color: white;
+            z-index: 1000;
+            opacity: 0;
+            transition: opacity 0.5s ease-in-out;
+            font-size: 0.875rem; /* text-sm */
+        }
+        .message-box.success { background-color: #10b981; } /* Tailwind green-500 */
+        .message-box.error { background-color: #ef4444; } /* Tailwind red-500 */
+        .message-box.show { opacity: 1; }
+
+        /* 容器最大寬度並置中 */
+        .container {
+            max-width: 1280px; /* 可以根據需要調整 */
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        /* 圖片容器，用於限制 Canvas 大小 */
+        #image-container {
+            position: relative; /* 為了裁切框定位 */
+            max-width: 100%;
+            max-height: 60vh; /* 限制最大高度，避免過大圖片佔滿螢幕 */
+            overflow: hidden; /* 確保圖片不超出容器 */
+            border-radius: 0.5rem; /* rounded-lg */
+            background-color: #e5e7eb; /* gray-200 for placeholder */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 300px; /* 最小高度 */
+        }
+
+        #source-canvas {
+            display: block; /* 避免 canvas 下方有空隙 */
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain; /* 保持圖片比例 */
+            user-select: none; /* 防止拖曳時選取圖片 */
+            -webkit-user-drag: none; /* 防止拖曳圖片 */
+        }
+         #preview-canvas {
+            display: block;
+            max-width: 100%;
+            border: 1px solid #d1d5db; /* gray-300 */
+            border-radius: 0.375rem; /* rounded-md */
+            background-color: #e5e7eb; /* gray-200 */
+         }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <div class="container mx-auto">
+        <h1 class="text-2xl md:text-3xl font-bold mb-6 text-center text-gray-800">簡單照片裁切器</h1>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div class="md:col-span-1 space-y-6">
+                <div class="bg-white p-4 rounded-lg shadow">
+                    <h2 class="text-lg font-semibold mb-3 text-gray-700">1. 載入圖片</h2>
+                    <div class="space-y-3">
+                        <div>
+                            <label for="file-upload" class="block text-sm font-medium text-gray-600 mb-1">本地上傳:</label>
+                            <input type="file" id="file-upload" accept="image/*" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer">
+                        </div>
+                        <div>
+                            <label for="url-input" class="block text-sm font-medium text-gray-600 mb-1">圖片 URL:</label>
+                            <div class="flex">
+                                <input type="url" id="url-input" placeholder="https://..." class="flex-grow p-2 border border-gray-300 rounded-l-md focus:ring-blue-500 focus:border-blue-500 text-sm">
+                                <button id="load-url-btn" class="bg-blue-600 text-white px-4 py-2 rounded-r-md hover:bg-blue-700 text-sm font-medium">載入</button>
+                            </div>
+                        </div>
+                        <div id="loading-indicator" class="text-sm text-blue-600 hidden"><span class="animate-spin inline-block mr-1">⏳</span> 載入中...</div>
+                    </div>
+                </div>
+
+                <div class="bg-white p-4 rounded-lg shadow space-y-4">
+                    <h2 class="text-lg font-semibold mb-3 text-gray-700">2. 裁切設定</h2>
+
+                    <div>
+                        <label for="aspect-ratio" class="block text-sm font-medium text-gray-600 mb-1">比例選擇:</label>
+                        <select id="aspect-ratio" class="block w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm">
+                            <option value="free">自由比例</option>
+                            <option value="1:1">1:1 (方形)</option>
+                            <option value="4:3">4:3</option>
+                            <option value="3:2">3:2</option>
+                            <option value="16:9">16:9</option>
+                            <option value="custom">自訂比例</option>
+                        </select>
+                        <div id="custom-ratio-inputs" class="mt-2 space-x-2 flex items-center hidden">
+                            <input type="number" id="custom-ratio-w" placeholder="寬" min="1" class="w-1/2 p-2 border border-gray-300 rounded-md text-sm">
+                            <span>:</span>
+                            <input type="number" id="custom-ratio-h" placeholder="高" min="1" class="w-1/2 p-2 border border-gray-300 rounded-md text-sm">
+                            <button id="swap-ratio-btn" class="p-1 text-gray-500 hover:text-blue-600" title="互換比例">
+                                <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/repeat.svg" alt="互換" class="w-4 h-4"/>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-600 mb-1">裁切尺寸 (輸出):</label>
+                        <div class="flex items-center space-x-2 mb-2">
+                           <select id="crop-size-preset" class="flex-grow p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm">
+                                <option value="auto">自動 (依裁切框)</option>
+                                <option value="custom">自訂尺寸</option>
+                                <option value="id_1_inch">1吋證件照 (2.5 x 3.5 cm)</option>
+                                <option value="id_2_inch">2吋證件照 (3.5 x 4.5 cm)</option>
+                                <option value="photo_4x6">4x6 相片 (10.2 x 15.2 cm)</option>
+                                </select>
+                             <select id="unit-select" class="p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm">
+                                <option value="px">px</option>
+                                <option value="cm">cm</option>
+                                <option value="inch">inch</option>
+                            </select>
+                        </div>
+                        <div id="custom-size-inputs" class="mt-2 space-x-2 flex items-center hidden">
+                            <input type="number" id="custom-size-w" placeholder="寬" min="1" class="w-1/2 p-2 border border-gray-300 rounded-md text-sm">
+                            <input type="number" id="custom-size-h" placeholder="高" min="1" class="w-1/2 p-2 border border-gray-300 rounded-md text-sm">
+                            <button id="swap-size-btn" class="p-1 text-gray-500 hover:text-blue-600" title="互換尺寸">
+                               <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/repeat.svg" alt="互換" class="w-4 h-4"/>
+                            </button>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-1">預設輸出 DPI: 300 (用於 cm/inch 轉換)</p>
+                    </div>
+
+                    <div>
+                        <label for="crop-shape" class="block text-sm font-medium text-gray-600 mb-1">裁切框形狀:</label>
+                        <select id="crop-shape" class="block w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm">
+                            <option value="rectangle">四邊形</option>
+                            <option value="circle">圓形/橢圓</option>
+                            </select>
+                    </div>
+                </div>
+
+                 <div class="bg-white p-4 rounded-lg shadow">
+                    <h2 class="text-lg font-semibold mb-3 text-gray-700">3. 執行與預覽</h2>
+                     <button id="crop-btn" class="w-full bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 font-medium mb-3 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                        執行裁切
+                    </button>
+                    <div class="text-sm text-gray-600 mb-1">裁切結果預覽:</div>
+                    <div class="flex justify-center items-center bg-gray-100 rounded-md p-2 min-h-[100px]">
+                       <canvas id="preview-canvas"></canvas>
+                    </div>
+                     <div id="crop-info" class="text-xs text-gray-500 mt-1 text-center"></div>
+                </div>
+
+                 <div class="bg-white p-4 rounded-lg shadow">
+                    <h2 class="text-lg font-semibold mb-3 text-gray-700">4. 儲存</h2>
+                    <div class="space-y-3">
+                        <div>
+                            <label for="file-format" class="block text-sm font-medium text-gray-600 mb-1">檔案格式:</label>
+                            <select id="file-format" class="block w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm">
+                                <option value="image/jpeg">JPG</option>
+                                <option value="image/png">PNG</option>
+                                <option value="image/gif">GIF</option>
+                                <option value="image/svg+xml">SVG (嵌入)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="file-name" class="block text-sm font-medium text-gray-600 mb-1">檔案名稱:</label>
+                            <input type="text" id="file-name" value="cropped_image" class="block w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm">
+                        </div>
+                        <button id="download-btn" class="w-full bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                            下載圖片
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="md:col-span-2 bg-white p-4 rounded-lg shadow flex flex-col items-center justify-center">
+                <h2 class="text-lg font-semibold mb-3 text-gray-700 self-start">主要工作區</h2>
+                <div id="image-container">
+                    <canvas id="source-canvas"></canvas>
+                    </div>
+                 <p class="text-xs text-gray-500 mt-2">提示：拖曳裁切框或控制點來調整範圍。</p>
+            </div>
+        </div>
+
+        <div id="message-box" class="message-box"></div>
+    </div>
+
+    <script>
+        // --- DOM 元素獲取 ---
+        const fileUpload = document.getElementById('file-upload');
+        const urlInput = document.getElementById('url-input');
+        const loadUrlBtn = document.getElementById('load-url-btn');
+        const loadingIndicator = document.getElementById('loading-indicator');
+        const aspectRatioSelect = document.getElementById('aspect-ratio');
+        const customRatioInputs = document.getElementById('custom-ratio-inputs');
+        const customRatioW = document.getElementById('custom-ratio-w');
+        const customRatioH = document.getElementById('custom-ratio-h');
+        const swapRatioBtn = document.getElementById('swap-ratio-btn');
+        const cropSizePresetSelect = document.getElementById('crop-size-preset');
+        const unitSelect = document.getElementById('unit-select');
+        const customSizeInputs = document.getElementById('custom-size-inputs');
+        const customSizeW = document.getElementById('custom-size-w');
+        const customSizeH = document.getElementById('custom-size-h');
+        const swapSizeBtn = document.getElementById('swap-size-btn');
+        const cropShapeSelect = document.getElementById('crop-shape');
+        const cropBtn = document.getElementById('crop-btn');
+        const previewCanvas = document.getElementById('preview-canvas');
+        const previewCtx = previewCanvas.getContext('2d');
+        const cropInfo = document.getElementById('crop-info');
+        const fileFormatSelect = document.getElementById('file-format');
+        const fileNameInput = document.getElementById('file-name');
+        const downloadBtn = document.getElementById('download-btn');
+        const imageContainer = document.getElementById('image-container');
+        const sourceCanvas = document.getElementById('source-canvas');
+        const sourceCtx = sourceCanvas.getContext('2d');
+        const messageBox = document.getElementById('message-box');
+
+        // --- 狀態變數 ---
+        let image = null; // 原始圖片 Image 物件
+        let imageLoaded = false;
+        let cropBox = null; // 裁切框 DOM 元素
+        let cropParams = { // 裁切框參數 (相對於 canvas 的比例)
+            x: 0.1, y: 0.1, width: 0.8, height: 0.8,
+            aspectRatio: null, // 鎖定的比例 (數字), null 表示自由
+            shape: 'rectangle', // 'rectangle', 'circle'
+            lockedSize: null // { width: px, height: px, unit: 'px'|'cm'|'inch', dpi: 300 }
+        };
+        let isDragging = false;
+        let isResizing = false;
+        let resizeHandle = null; // 'tl', 'tr', 'bl', 'br', 'tm', 'bm', 'ml', 'mr'
+        let startX, startY, startCropX, startCropY, startCropWidth, startCropHeight;
+        const DPI = 300; // 預設輸出 DPI
+
+        // --- Helper 函數 ---
+        function showMessage(message, type = 'success', duration = 3000) {
+            messageBox.textContent = message;
+            messageBox.className = `message-box ${type} show`;
+            setTimeout(() => {
+                messageBox.classList.remove('show');
+            }, duration);
+        }
+
+        function enableControls() {
+            cropBtn.disabled = !imageLoaded;
+            downloadBtn.disabled = previewCanvas.width === 0 || previewCanvas.height === 0;
+        }
+
+        function disableControls() {
+            cropBtn.disabled = true;
+            downloadBtn.disabled = true;
+        }
+
+        // 單位轉換
+        function convertToPx(value, unit) {
+            if (unit === 'px') return value;
+            if (unit === 'cm') return Math.round((value / 2.54) * DPI);
+            if (unit === 'inch') return Math.round(value * DPI);
+            return value; // 預設返回原值
+        }
+
+        function convertFromPx(value, unit) {
+             if (unit === 'px') return value;
+             if (unit === 'cm') return parseFloat(((value / DPI) * 2.54).toFixed(2));
+             if (unit === 'inch') return parseFloat((value / DPI).toFixed(2));
+             return value;
+        }
+
+        // --- 圖片載入邏輯 ---
+        function loadImage(src) {
+            loadingIndicator.classList.remove('hidden');
+            disableControls();
+            image = new Image();
+            // 處理 CORS 問題，如果 URL 來自不同源且伺服器不允許，則無法載入
+            if (src.startsWith('http')) {
+                image.crossOrigin = "Anonymous"; // 嘗試匿名模式
+            }
+            image.onload = () => {
+                imageLoaded = true;
+                // 調整 Canvas 尺寸以適應圖片，同時考慮容器限制
+                const containerWidth = imageContainer.clientWidth;
+                const containerHeight = imageContainer.clientHeight;
+                const imgRatio = image.naturalWidth / image.naturalHeight;
+                const containerRatio = containerWidth / containerHeight;
+
+                let canvasWidth, canvasHeight;
+                if (imgRatio > containerRatio) { // 圖片較寬
+                    canvasWidth = containerWidth;
+                    canvasHeight = containerWidth / imgRatio;
+                } else { // 圖片較高或方形
+                    canvasHeight = containerHeight;
+                    canvasWidth = containerHeight * imgRatio;
+                }
+
+                sourceCanvas.width = canvasWidth;
+                sourceCanvas.height = canvasHeight;
+
+                sourceCtx.clearRect(0, 0, sourceCanvas.width, sourceCanvas.height);
+                sourceCtx.drawImage(image, 0, 0, sourceCanvas.width, sourceCanvas.height);
+                loadingIndicator.classList.add('hidden');
+                showMessage('圖片載入成功', 'success');
+                resetCropBox(); // 初始化裁切框
+                enableControls();
+            };
+            image.onerror = () => {
+                loadingIndicator.classList.add('hidden');
+                showMessage('圖片載入失敗，請檢查 URL 或檔案', 'error');
+                imageLoaded = false;
+                disableControls();
+                // 清除可能存在的舊圖片
+                sourceCtx.clearRect(0, 0, sourceCanvas.width, sourceCanvas.height);
+                sourceCanvas.width = 0;
+                sourceCanvas.height = 0;
+                if (cropBox) {
+                    cropBox.remove();
+                    cropBox = null;
+                }
+            };
+            image.src = src;
+        }
+
+        fileUpload.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    loadImage(e.target.result);
+                }
+                reader.readAsDataURL(file);
+            }
+        });
+
+        loadUrlBtn.addEventListener('click', () => {
+            const url = urlInput.value.trim();
+            if (url) {
+                loadImage(url);
+            } else {
+                showMessage('請輸入有效的圖片 URL', 'error');
+            }
+        });
+
+        // --- 裁切框邏輯 ---
+        function createCropBox() {
+            if (cropBox) cropBox.remove(); // 移除舊的
+
+            cropBox = document.createElement('div');
+            cropBox.className = 'crop-box';
+            if (cropParams.shape === 'circle') {
+                cropBox.classList.add('circle');
+            }
+
+            // 添加控制點
+            const handles = ['tl', 'tr', 'bl', 'br', 'tm', 'bm', 'ml', 'mr'];
+            handles.forEach(handleType => {
+                const handle = document.createElement('div');
+                handle.className = `handle ${handleType}`;
+                handle.dataset.handle = handleType;
+                cropBox.appendChild(handle);
+                handle.addEventListener('mousedown', startResize);
+            });
+
+            imageContainer.appendChild(cropBox);
+            updateCropBoxPosition();
+
+            cropBox.addEventListener('mousedown', startDrag);
+            // 阻止圖片容器上的默認拖曳行為
+            imageContainer.addEventListener('dragstart', (e) => e.preventDefault());
+        }
+
+        function updateCropBoxPosition() {
+            if (!cropBox || !imageLoaded) return;
+
+            const canvasRect = sourceCanvas.getBoundingClientRect(); // 使用 getBoundingClientRect 獲取實際渲染位置
+            const containerRect = imageContainer.getBoundingClientRect();
+
+            // 計算 canvas 在 container 內的偏移
+            const canvasOffsetX = canvasRect.left - containerRect.left;
+            const canvasOffsetY = canvasRect.top - containerRect.top;
+
+            cropBox.style.left = `${canvasOffsetX + cropParams.x * sourceCanvas.width}px`;
+            cropBox.style.top = `${canvasOffsetY + cropParams.y * sourceCanvas.height}px`;
+            cropBox.style.width = `${cropParams.width * sourceCanvas.width}px`;
+            cropBox.style.height = `${cropParams.height * sourceCanvas.height}px`;
+
+            // 更新裁切資訊顯示 (像素)
+            const cropPixelX = Math.round(cropParams.x * image.naturalWidth);
+            const cropPixelY = Math.round(cropParams.y * image.naturalHeight);
+            const cropPixelWidth = Math.round(cropParams.width * image.naturalWidth);
+            const cropPixelHeight = Math.round(cropParams.height * image.naturalHeight);
+            cropInfo.textContent = `裁切範圍: ${cropPixelWidth} x ${cropPixelHeight} px`;
+
+             // 根據形狀更新控制點可見性
+            const handles = cropBox.querySelectorAll('.handle');
+            const isCircle = cropParams.shape === 'circle';
+            const isLockedRatio = cropParams.aspectRatio !== null || cropParams.lockedSize !== null;
+
+            handles.forEach(h => {
+                const handleType = h.dataset.handle;
+                 // 圓形或鎖定比例時，只顯示四個角的控制點
+                 if (isCircle || isLockedRatio) {
+                    if (['tm', 'bm', 'ml', 'mr'].includes(handleType)) {
+                         h.style.display = 'none';
+                    } else {
+                         h.style.display = 'block';
+                    }
+                 } else {
+                     h.style.display = 'block'; // 矩形且自由比例時顯示所有控制點
+                 }
+            });
+        }
+
+
+        function resetCropBox() {
+            if (!imageLoaded) return;
+
+            // 根據當前設定決定初始狀態
+            if (cropParams.lockedSize) {
+                // 尺寸優先：計算目標像素，然後計算在畫布上的比例
+                const targetW_px = convertToPx(cropParams.lockedSize.width, cropParams.lockedSize.unit);
+                const targetH_px = convertToPx(cropParams.lockedSize.height, cropParams.lockedSize.unit);
+                cropParams.aspectRatio = targetW_px / targetH_px; // 鎖定比例
+
+                // 計算裁切框在畫布上的尺寸比例，使其不超過畫布
+                let boxW_ratio, boxH_ratio;
+                const scaleW = targetW_px / image.naturalWidth;
+                const scaleH = targetH_px / image.naturalHeight;
+
+                // 以較大的縮放比例為準，確保裁切框初始時在圖片內
+                if (scaleW > scaleH) {
+                    if (scaleW > 1) { // 目標寬度比原圖寬
+                       boxW_ratio = 1;
+                       boxH_ratio = 1 / cropParams.aspectRatio;
+                    } else {
+                        boxW_ratio = scaleW;
+                        boxH_ratio = scaleW / cropParams.aspectRatio;
+                    }
+                } else {
+                     if (scaleH > 1) { // 目標高度比原圖高
+                       boxH_ratio = 1;
+                       boxW_ratio = 1 * cropParams.aspectRatio;
+                    } else {
+                        boxH_ratio = scaleH;
+                        boxW_ratio = scaleH * cropParams.aspectRatio;
+                    }
+                }
+                 // 確保不超過畫布邊界
+                 boxW_ratio = Math.min(boxW_ratio, 1);
+                 boxH_ratio = Math.min(boxH_ratio, 1);
+
+                 // 如果計算出的比例導致另一邊超出，則重新計算
+                 if (boxW_ratio * cropParams.aspectRatio > 1) {
+                     boxH_ratio = 1;
+                     boxW_ratio = 1 * cropParams.aspectRatio;
+                 }
+                 if (boxH_ratio / cropParams.aspectRatio > 1) {
+                     boxW_ratio = 1;
+                     boxH_ratio = 1 / cropParams.aspectRatio;
+                 }
+
+
+                cropParams.width = boxW_ratio;
+                cropParams.height = boxH_ratio;
+                // 置中
+                cropParams.x = (1 - cropParams.width) / 2;
+                cropParams.y = (1 - cropParams.height) / 2;
+
+            } else if (cropParams.aspectRatio) {
+                // 比例優先：使用設定的比例，初始大小設為畫布的 80%
+                const canvasRatio = sourceCanvas.width / sourceCanvas.height;
+                if (cropParams.aspectRatio > canvasRatio) { // 裁切框比畫布寬
+                    cropParams.width = 0.8;
+                    cropParams.height = cropParams.width / cropParams.aspectRatio;
+                } else { // 裁切框比畫布高或方形
+                    cropParams.height = 0.8;
+                    cropParams.width = cropParams.height * cropParams.aspectRatio;
+                }
+                 // 置中
+                cropParams.x = (1 - cropParams.width) / 2;
+                cropParams.y = (1 - cropParams.height) / 2;
+            } else {
+                // 自由比例：預設為畫布的 80%
+                cropParams.x = 0.1;
+                cropParams.y = 0.1;
+                cropParams.width = 0.8;
+                cropParams.height = 0.8;
+            }
+
+            createCropBox();
+        }
+
+        // --- 拖曳與縮放事件處理 ---
+        function startDrag(e) {
+            if (e.target !== cropBox) return; // 確保是點擊裁切框本身，而不是控制點
+            isDragging = true;
+            isResizing = false;
+            const canvasRect = sourceCanvas.getBoundingClientRect();
+            startX = e.clientX;
+            startY = e.clientY;
+            startCropX = cropParams.x * sourceCanvas.width;
+            startCropY = cropParams.y * sourceCanvas.height;
+            document.addEventListener('mousemove', drag);
+            document.addEventListener('mouseup', stopDrag);
+            cropBox.style.cursor = 'grabbing';
+        }
+
+        function drag(e) {
+            if (!isDragging) return;
+            const dx = e.clientX - startX;
+            const dy = e.clientY - startY;
+
+            let newCropX = startCropX + dx;
+            let newCropY = startCropY + dy;
+
+            // 邊界檢測
+            newCropX = Math.max(0, Math.min(newCropX, sourceCanvas.width - cropParams.width * sourceCanvas.width));
+            newCropY = Math.max(0, Math.min(newCropY, sourceCanvas.height - cropParams.height * sourceCanvas.height));
+
+            cropParams.x = newCropX / sourceCanvas.width;
+            cropParams.y = newCropY / sourceCanvas.height;
+            updateCropBoxPosition();
+        }
+
+        function stopDrag() {
+            if (isDragging) {
+                isDragging = false;
+                document.removeEventListener('mousemove', drag);
+                document.removeEventListener('mouseup', stopDrag);
+                cropBox.style.cursor = 'move';
+            }
+        }
+
+        function startResize(e) {
+            e.stopPropagation(); // 防止觸發裁切框的拖曳
+            isResizing = true;
+            isDragging = false;
+            resizeHandle = e.target.dataset.handle;
+            startX = e.clientX;
+            startY = e.clientY;
+            startCropX = cropParams.x * sourceCanvas.width;
+            startCropY = cropParams.y * sourceCanvas.height;
+            startCropWidth = cropParams.width * sourceCanvas.width;
+            startCropHeight = cropParams.height * sourceCanvas.height;
+            document.addEventListener('mousemove', resize);
+            document.addEventListener('mouseup', stopResize);
+        }
+
+        function resize(e) {
+            if (!isResizing) return;
+            const dx = e.clientX - startX;
+            const dy = e.clientY - startY;
+
+            let newX = startCropX;
+            let newY = startCropY;
+            let newWidth = startCropWidth;
+            let newHeight = startCropHeight;
+
+            const aspectRatio = cropParams.aspectRatio; // 鎖定比例
+            const isLocked = aspectRatio !== null || cropParams.lockedSize !== null;
+
+            // 根據控制點調整尺寸和位置
+            switch (resizeHandle) {
+                case 'tl':
+                    newWidth = startCropWidth - dx;
+                    newHeight = startCropHeight - dy;
+                    if (isLocked) {
+                        if (Math.abs(dx) > Math.abs(dy)) {
+                            newHeight = newWidth / aspectRatio;
+                            newY = startCropY + (startCropHeight - newHeight);
+                            newX = startCropX + dx;
+                        } else {
+                            newWidth = newHeight * aspectRatio;
+                            newX = startCropX + (startCropWidth - newWidth);
+                            newY = startCropY + dy;
+                        }
+                    } else {
+                         newX = startCropX + dx;
+                         newY = startCropY + dy;
+                    }
+                    break;
+                case 'tr':
+                    newWidth = startCropWidth + dx;
+                    newHeight = startCropHeight - dy;
+                     if (isLocked) {
+                        if (Math.abs(dx) > Math.abs(dy)) {
+                            newHeight = newWidth / aspectRatio;
+                            newY = startCropY + (startCropHeight - newHeight);
+                        } else {
+                            newWidth = newHeight * aspectRatio;
+                            newY = startCropY + dy;
+                        }
+                    } else {
+                         newY = startCropY + dy;
+                    }
+                    break;
+                case 'bl':
+                    newWidth = startCropWidth - dx;
+                    newHeight = startCropHeight + dy;
+                     if (isLocked) {
+                        if (Math.abs(dx) > Math.abs(dy)) {
+                            newHeight = newWidth / aspectRatio;
+                            newX = startCropX + dx;
+                        } else {
+                            newWidth = newHeight * aspectRatio;
+                            newX = startCropX + (startCropWidth - newWidth);
+                        }
+                    } else {
+                         newX = startCropX + dx;
+                    }
+                    break;
+                case 'br':
+                    newWidth = startCropWidth + dx;
+                    newHeight = startCropHeight + dy;
+                     if (isLocked) {
+                        if (Math.abs(dx) > Math.abs(dy)) {
+                            newHeight = newWidth / aspectRatio;
+                        } else {
+                            newWidth = newHeight * aspectRatio;
+                        }
+                    }
+                    break;
+                 // --- 邊緣控制點 (僅在自由比例時有效) ---
+                 case 'tm':
+                    if (!isLocked) {
+                        newHeight = startCropHeight - dy;
+                        newY = startCropY + dy;
+                    }
+                    break;
+                case 'bm':
+                     if (!isLocked) {
+                        newHeight = startCropHeight + dy;
+                    }
+                    break;
+                case 'ml':
+                     if (!isLocked) {
+                        newWidth = startCropWidth - dx;
+                        newX = startCropX + dx;
+                    }
+                    break;
+                case 'mr':
+                     if (!isLocked) {
+                        newWidth = startCropWidth + dx;
+                    }
+                    break;
+            }
+
+            // 最小尺寸限制
+            const minSize = 10; // 像素
+            newWidth = Math.max(minSize, newWidth);
+            newHeight = Math.max(minSize, newHeight);
+
+             // 邊界檢測
+            if (newX < 0) {
+                newWidth += newX; // 寬度減少
+                newX = 0;
+            }
+            if (newY < 0) {
+                newHeight += newY; // 高度減少
+                newY = 0;
+            }
+            if (newX + newWidth > sourceCanvas.width) {
+                newWidth = sourceCanvas.width - newX;
+                 if (isLocked) newHeight = newWidth / aspectRatio; // 維持比例
+            }
+            if (newY + newHeight > sourceCanvas.height) {
+                newHeight = sourceCanvas.height - newY;
+                 if (isLocked) newWidth = newHeight * aspectRatio; // 維持比例
+            }
+             // 如果因為邊界限制導致比例變化，需要重新計算另一邊
+             if (isLocked) {
+                 const currentRatio = newWidth / newHeight;
+                 const tolerance = 0.01; // 容忍誤差
+                 if (Math.abs(currentRatio - aspectRatio) > tolerance) {
+                     // 假設寬度是限制因素
+                     if (newX + newWidth >= sourceCanvas.width || newX <= 0) {
+                          newHeight = newWidth / aspectRatio;
+                          if(resizeHandle.includes('t')) newY = startCropY + (startCropHeight - newHeight); // 向上縮放調整Y
+                     }
+                     // 假設高度是限制因素
+                     else if (newY + newHeight >= sourceCanvas.height || newY <= 0) {
+                         newWidth = newHeight * aspectRatio;
+                          if(resizeHandle.includes('l')) newX = startCropX + (startCropWidth - newWidth); // 向左縮放調整X
+                     }
+                 }
+             }
+
+
+            // 更新參數 (比例)
+            cropParams.x = newX / sourceCanvas.width;
+            cropParams.y = newY / sourceCanvas.height;
+            cropParams.width = newWidth / sourceCanvas.width;
+            cropParams.height = newHeight / sourceCanvas.height;
+
+            updateCropBoxPosition();
+        }
+
+        function stopResize() {
+            if (isResizing) {
+                isResizing = false;
+                document.removeEventListener('mousemove', resize);
+                document.removeEventListener('mouseup', stopResize);
+                // 如果是固定尺寸模式，拖曳結束後強制恢復到目標比例
+                 if (cropParams.lockedSize) {
+                     resetCropBox(); // 重新計算並繪製以確保比例精確
+                 }
+            }
+        }
+
+
+        // --- 設定變更事件 ---
+        aspectRatioSelect.addEventListener('change', (e) => {
+            const value = e.target.value;
+            cropParams.lockedSize = null; // 選擇比例時，取消尺寸鎖定
+            cropSizePresetSelect.value = 'auto'; // 重置尺寸下拉
+            unitSelect.value = 'px';
+            customSizeInputs.classList.add('hidden');
+
+            if (value === 'free') {
+                cropParams.aspectRatio = null;
+                customRatioInputs.classList.add('hidden');
+            } else if (value === 'custom') {
+                cropParams.aspectRatio = null; // 初始自訂為自由
+                customRatioInputs.classList.remove('hidden');
+                // 嘗試從當前裁切框獲取比例
+                 if (cropBox) {
+                     customRatioW.value = Math.round(cropParams.width * sourceCanvas.width);
+                     customRatioH.value = Math.round(cropParams.height * sourceCanvas.height);
+                     updateCustomRatio(); // 更新比例鎖定
+                 }
+            } else {
+                const parts = value.split(':');
+                cropParams.aspectRatio = parseFloat(parts[0]) / parseFloat(parts[1]);
+                customRatioInputs.classList.add('hidden');
+            }
+            if (imageLoaded) resetCropBox(); // 根據新比例重置裁切框
+        });
+
+        customRatioW.addEventListener('input', updateCustomRatio);
+        customRatioH.addEventListener('input', updateCustomRatio);
+
+        function updateCustomRatio() {
+             if (aspectRatioSelect.value === 'custom') {
+                const w = parseFloat(customRatioW.value);
+                const h = parseFloat(customRatioH.value);
+                if (w > 0 && h > 0) {
+                    cropParams.aspectRatio = w / h;
+                     if (imageLoaded) resetCropBox();
+                } else {
+                    cropParams.aspectRatio = null; // 無效輸入則恢復自由比例
+                     if (imageLoaded) resetCropBox(); // 允許自由拖曳
+                }
+            }
+        }
+
+
+        swapRatioBtn.addEventListener('click', () => {
+            const w = customRatioW.value;
+            customRatioW.value = customRatioH.value;
+            customRatioH.value = w;
+            updateCustomRatio();
+        });
+
+        cropSizePresetSelect.addEventListener('change', (e) => {
+            const value = e.target.value;
+            aspectRatioSelect.value = 'free'; // 選擇尺寸時，比例設為自由（但會被尺寸鎖定）
+            customRatioInputs.classList.add('hidden');
+            cropParams.aspectRatio = null; // 清除比例設定
+
+            if (value === 'auto') {
+                cropParams.lockedSize = null;
+                customSizeInputs.classList.add('hidden');
+                unitSelect.value = 'px'; // 重置單位
+                 if (imageLoaded) resetCropBox(); // 恢復自由比例
+            } else if (value === 'custom') {
+                cropParams.lockedSize = null; // 尚未輸入完成
+                customSizeInputs.classList.remove('hidden');
+                unitSelect.disabled = false; // 允許選擇單位
+                updateCustomSize(); // 嘗試根據輸入更新
+            } else {
+                // 處理預設尺寸
+                customSizeInputs.classList.add('hidden');
+                unitSelect.disabled = true; // 預設尺寸單位固定
+                let w, h, unit;
+                switch (value) {
+                    case 'id_1_inch': w = 2.5; h = 3.5; unit = 'cm'; break;
+                    case 'id_2_inch': w = 3.5; h = 4.5; unit = 'cm'; break;
+                    case 'photo_4x6': w = 4; h = 6; unit = 'inch'; break; // 4x6 通常是英吋
+                    // 添加更多 case
+                }
+                 if (w && h && unit) {
+                    cropParams.lockedSize = { width: w, height: h, unit: unit, dpi: DPI };
+                    unitSelect.value = unit; // 更新單位顯示
+                    if (imageLoaded) resetCropBox(); // 根據新尺寸重置裁切框
+                 }
+            }
+        });
+
+         unitSelect.addEventListener('change', () => {
+             if (cropSizePresetSelect.value === 'custom' || cropParams.lockedSize) {
+                  // 如果是自訂尺寸或已有鎖定尺寸，單位變化需要重新計算
+                  if (cropParams.lockedSize) {
+                       // 將當前鎖定尺寸轉換為新單位下的值
+                       const currentW_px = convertToPx(cropParams.lockedSize.width, cropParams.lockedSize.unit);
+                       const currentH_px = convertToPx(cropParams.lockedSize.height, cropParams.lockedSize.unit);
+                       cropParams.lockedSize.unit = unitSelect.value;
+                       cropParams.lockedSize.width = convertFromPx(currentW_px, unitSelect.value);
+                       cropParams.lockedSize.height = convertFromPx(currentH_px, unitSelect.value);
+                       // 更新自訂輸入框（如果可見）
+                       if (!customSizeInputs.classList.contains('hidden')) {
+                           customSizeW.value = cropParams.lockedSize.width;
+                           customSizeH.value = cropParams.lockedSize.height;
+                       }
+                  }
+                  // 如果是自訂輸入模式，也觸發一次更新
+                  if (cropSizePresetSelect.value === 'custom') {
+                       updateCustomSize();
+                  } else if (imageLoaded) {
+                      // 如果是預設尺寸切換單位（雖然 UI 上禁止了，但以防萬一），重新計算
+                      resetCropBox();
+                  }
+             }
+         });
+
+        customSizeW.addEventListener('input', updateCustomSize);
+        customSizeH.addEventListener('input', updateCustomSize);
+
+        function updateCustomSize() {
+             if (cropSizePresetSelect.value === 'custom') {
+                const w = parseFloat(customSizeW.value);
+                const h = parseFloat(customSizeH.value);
+                const unit = unitSelect.value;
+                if (w > 0 && h > 0) {
+                    cropParams.lockedSize = { width: w, height: h, unit: unit, dpi: DPI };
+                    if (imageLoaded) resetCropBox();
+                } else {
+                    cropParams.lockedSize = null; // 無效輸入則取消鎖定
+                     if (imageLoaded) resetCropBox(); // 恢復自由比例
+                }
+            }
+        }
+
+        swapSizeBtn.addEventListener('click', () => {
+            const w = customSizeW.value;
+            customSizeW.value = customSizeH.value;
+            customSizeH.value = w;
+            updateCustomSize();
+        });
+
+        cropShapeSelect.addEventListener('change', (e) => {
+            cropParams.shape = e.target.value;
+            if (cropBox) {
+                if (cropParams.shape === 'circle') {
+                    cropBox.classList.add('circle');
+                    // 如果當前不是 1:1，強制變為 1:1 或最接近的正方形
+                    if (cropParams.aspectRatio !== 1) {
+                        // 如果有鎖定比例，以寬度為基準
+                         if (cropParams.width > cropParams.height) {
+                              cropParams.height = cropParams.width;
+                         } else {
+                              cropParams.width = cropParams.height;
+                         }
+                         cropParams.aspectRatio = 1; // 圓形強制 1:1 比例進行裁切框互動
+                         // 同步更新比例選擇下拉框（如果存在 1:1 選項）
+                         if (Array.from(aspectRatioSelect.options).some(opt => opt.value === '1:1')) {
+                              aspectRatioSelect.value = '1:1';
+                         } else {
+                             aspectRatioSelect.value = 'free'; // 回退到自由，但比例仍鎖定為 1
+                         }
+                         customRatioInputs.classList.add('hidden');
+                         resetCropBox(); // 重新繪製裁切框
+                    }
+                } else {
+                    cropBox.classList.remove('circle');
+                    // 從矩形切換回來時，恢復之前的比例設定（如果不是來自尺寸鎖定）
+                    if (!cropParams.lockedSize) {
+                         const currentRatioSelection = aspectRatioSelect.value;
+                         if (currentRatioSelection === 'free') cropParams.aspectRatio = null;
+                         else if (currentRatioSelection === 'custom') updateCustomRatio();
+                         else if (currentRatioSelection !== '1:1') { // 避免切換形狀時丟失非 1:1 比例
+                             const parts = currentRatioSelection.split(':');
+                             cropParams.aspectRatio = parseFloat(parts[0]) / parseFloat(parts[1]);
+                         }
+                         // 如果之前是圓形強制 1:1，現在切回矩形且比例不是 1:1，則重置
+                         else if (cropParams.aspectRatio === 1 && currentRatioSelection !== '1:1') {
+                              // 根據下拉框恢復比例
+                              if (currentRatioSelection === 'free') cropParams.aspectRatio = null;
+                              else if (currentRatioSelection === 'custom') updateCustomRatio();
+                              else {
+                                   const parts = currentRatioSelection.split(':');
+                                   cropParams.aspectRatio = parseFloat(parts[0]) / parseFloat(parts[1]);
+                              }
+                         }
+                    }
+                     resetCropBox(); // 重新繪製
+                }
+                updateCropBoxPosition(); // 更新控制點可見性
+            }
+        });
+
+        // --- 裁切執行 ---
+        cropBtn.addEventListener('click', () => {
+            if (!imageLoaded || !cropBox) return;
+
+            // 獲取原始圖片中對應裁切框的區域參數 (像素)
+            const sx = cropParams.x * image.naturalWidth;
+            const sy = cropParams.y * image.naturalHeight;
+            const sWidth = cropParams.width * image.naturalWidth;
+            const sHeight = cropParams.height * image.naturalHeight;
+
+            // 確定輸出畫布的尺寸
+            let outputWidth, outputHeight;
+            if (cropParams.lockedSize) {
+                // 如果有鎖定尺寸，使用轉換後的像素值
+                outputWidth = convertToPx(cropParams.lockedSize.width, cropParams.lockedSize.unit);
+                outputHeight = convertToPx(cropParams.lockedSize.height, cropParams.lockedSize.unit);
+            } else {
+                // 否則，使用裁切框的實際像素尺寸
+                outputWidth = Math.round(sWidth);
+                outputHeight = Math.round(sHeight);
+            }
+
+             // 設置預覽畫布尺寸
+             // 為了在預覽區顯示，可能需要縮放，但保持比例
+             const previewContainerWidth = previewCanvas.parentElement.clientWidth - 20; // 減去 padding
+             const previewRatio = outputWidth / outputHeight;
+             let previewDisplayWidth, previewDisplayHeight;
+
+             if (outputWidth > previewContainerWidth) {
+                 previewDisplayWidth = previewContainerWidth;
+                 previewDisplayHeight = previewDisplayWidth / previewRatio;
+             } else {
+                 previewDisplayWidth = outputWidth;
+                 previewDisplayHeight = outputHeight;
+             }
+             // 限制預覽高度，避免過高
+             const maxPreviewHeight = 300;
+             if (previewDisplayHeight > maxPreviewHeight) {
+                 previewDisplayHeight = maxPreviewHeight;
+                 previewDisplayWidth = previewDisplayHeight * previewRatio;
+             }
+
+
+             previewCanvas.width = outputWidth; // 實際裁切尺寸
+             previewCanvas.height = outputHeight;
+             previewCanvas.style.width = `${previewDisplayWidth}px`; // CSS 控制顯示大小
+             previewCanvas.style.height = `${previewDisplayHeight}px`;
+
+
+            previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+
+            // 應用裁切形狀 (如果不是矩形)
+            if (cropParams.shape === 'circle') {
+                previewCtx.save(); // 保存當前狀態
+                previewCtx.beginPath();
+                // 繪製橢圓路徑 (中心點 x, y, 半徑 x, 半徑 y, 旋轉角度, 起始角度, 結束角度)
+                previewCtx.ellipse(outputWidth / 2, outputHeight / 2, outputWidth / 2, outputHeight / 2, 0, 0, Math.PI * 2);
+                previewCtx.clip(); // 將繪圖限制在路徑內
+            }
+             // 繪製裁切後的圖片到預覽畫布
+            // drawImage(image, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight)
+            previewCtx.drawImage(image, sx, sy, sWidth, sHeight, 0, 0, outputWidth, outputHeight);
+
+             if (cropParams.shape === 'circle') {
+                previewCtx.restore(); // 恢復狀態，移除剪裁區域
+            }
+
+
+            showMessage('裁切完成，請預覽結果', 'success');
+            enableControls(); // 啟用下載按鈕
+        });
+
+        // --- 下載邏輯 ---
+        downloadBtn.addEventListener('click', () => {
+            if (previewCanvas.width === 0 || previewCanvas.height === 0) {
+                showMessage('沒有可下載的裁切結果', 'error');
+                return;
+            }
+
+            const format = fileFormatSelect.value;
+            let fileName = fileNameInput.value.trim() || 'cropped_image';
+            const extension = format.split('/')[1].replace('+xml', ''); // 'jpeg', 'png', 'gif', 'svg'
+
+            // 確保檔名有副檔名
+            if (!fileName.toLowerCase().endsWith(`.${extension}`)) {
+                fileName += `.${extension}`;
+            }
+
+            let dataUrl;
+            if (format === 'image/svg+xml') {
+                // --- 生成 SVG ---
+                // 獲取 PNG 格式的 Data URL 作為嵌入源
+                const pngDataUrl = previewCanvas.toDataURL('image/png');
+                const svgWidth = previewCanvas.width;
+                const svgHeight = previewCanvas.height;
+
+                let svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}">`;
+
+                if (cropParams.shape === 'circle') {
+                    // 使用 clipPath 定義圓形/橢圓形遮罩
+                    svgContent += `
+                        <defs>
+                            <clipPath id="cropCircleClip">
+                                <ellipse cx="${svgWidth / 2}" cy="${svgHeight / 2}" rx="${svgWidth / 2}" ry="${svgHeight / 2}"/>
+                            </clipPath>
+                        </defs>
+                        <image href="${pngDataUrl}" x="0" y="0" width="${svgWidth}" height="${svgHeight}" clip-path="url(#cropCircleClip)"/>
+                    `;
+                } else {
+                    // 直接嵌入圖片
+                    svgContent += `<image href="${pngDataUrl}" x="0" y="0" width="${svgWidth}" height="${svgHeight}"/>`;
+                }
+
+                svgContent += `</svg>`;
+                // 將 SVG 內容編碼為 Data URL
+                dataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgContent)}`;
+
+            } else {
+                 // --- 生成其他格式 (JPG, PNG, GIF) ---
+                 // 對於 JPG，背景預設是黑色，如果來源是透明 PNG，可能需要先填充背景色
+                 if (format === 'image/jpeg') {
+                     const tempCanvas = document.createElement('canvas');
+                     tempCanvas.width = previewCanvas.width;
+                     tempCanvas.height = previewCanvas.height;
+                     const tempCtx = tempCanvas.getContext('2d');
+                     // 填充白色背景
+                     tempCtx.fillStyle = '#FFFFFF';
+                     tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+                     // 繪製原始裁切結果
+                     tempCtx.drawImage(previewCanvas, 0, 0);
+                     dataUrl = tempCanvas.toDataURL(format, 0.9); // 0.9 是 JPG 品質
+                 } else {
+                      dataUrl = previewCanvas.toDataURL(format);
+                 }
+            }
+
+
+            // 創建下載連結並觸發點擊
+            const link = document.createElement('a');
+            link.href = dataUrl;
+            link.download = fileName;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            showMessage('圖片已開始下載', 'success');
+        });
+
+        // --- 初始化 ---
+        disableControls(); // 初始禁用按鈕
+
+    </script>
+</body>
+</html>
