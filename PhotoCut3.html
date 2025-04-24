@@ -1,0 +1,1772 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"> <!-- Added user-scalable=no for better mobile experience -->
+    <title>進階照片裁切與增強器 v2 (觸控優化)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* Basic styles */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6; /* Tailwind gray-100 */
+            overscroll-behavior: none; /* Prevent pull-to-refresh on mobile */
+        }
+        /* Crop box styles */
+        .crop-box {
+            position: absolute;
+            border: 2px dashed #ffffff; /* White dashed line */
+            box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5); /* Semi-transparent overlay */
+            cursor: move;
+            z-index: 10;
+            box-sizing: border-box; /* Include border in size */
+            touch-action: none; /* Crucial for preventing default touch actions */
+        }
+        .crop-box.circle {
+            border-radius: 50%;
+            box-shadow: 0 0 0 2px #ffffff, 0 0 0 9999px rgba(0, 0, 0, 0.5);
+            border: none;
+        }
+        /* Crop handle styles */
+        .handle {
+            position: absolute;
+            width: 16px; /* Slightly larger handles for touch */
+            height: 16px;
+            background-color: #ffffff;
+            border: 1px solid #374151;
+            border-radius: 50%;
+            z-index: 20;
+            box-sizing: border-box;
+            touch-action: none; /* Prevent default actions on handles */
+        }
+        .handle.tl { top: -8px; left: -8px; cursor: nwse-resize; }
+        .handle.tr { top: -8px; right: -8px; cursor: nesw-resize; }
+        .handle.bl { bottom: -8px; left: -8px; cursor: nesw-resize; }
+        .handle.br { bottom: -8px; right: -8px; cursor: nwse-resize; }
+        .handle.tm { top: -8px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
+        .handle.bm { bottom: -8px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
+        .handle.ml { top: 50%; left: -8px; transform: translateY(-50%); cursor: ew-resize; }
+        .handle.mr { top: 50%; right: -8px; transform: translateY(-50%); cursor: ew-resize; }
+
+        /* Hide input[type=number] arrows */
+        input[type=number]::-webkit-inner-spin-button,
+        input[type=number]::-webkit-outer-spin-button {
+          -webkit-appearance: none; margin: 0;
+        }
+        input[type=number] { -moz-appearance: textfield; }
+
+        /* Message box styles */
+        .message-box {
+            position: fixed; top: 20px; left: 50%;
+            transform: translateX(-50%); padding: 12px 20px;
+            border-radius: 8px; color: white; z-index: 1000;
+            opacity: 0; transition: opacity 0.5s ease-in-out;
+            font-size: 0.875rem; /* text-sm */
+        }
+        .message-box.success { background-color: #10b981; } /* green-500 */
+        .message-box.error { background-color: #ef4444; } /* red-500 */
+        .message-box.show { opacity: 1; }
+
+        /* Container */
+        .container { max-width: 1280px; margin-left: auto; margin-right: auto; }
+
+        /* Image container */
+        #image-container {
+            position: relative; width: 100%; height: 60vh; /* Adjusted height slightly */
+            overflow: hidden; border-radius: 0.5rem; /* rounded-lg */
+            background-color: #e5e7eb; /* gray-200 */ display: flex;
+            align-items: center; justify-content: center;
+            cursor: grab;
+            touch-action: none; /* Prevent default touch actions like scrolling/zooming on the container */
+             -webkit-user-select: none; /* Safari */
+             -moz-user-select: none; /* Firefox */
+             -ms-user-select: none; /* IE10+/Edge */
+             user-select: none; /* Standard */
+        }
+         #image-container:active { cursor: grabbing; }
+
+        #source-canvas {
+            display: block; max-width: none; max-height: none;
+            object-fit: contain; user-select: none;
+            -webkit-user-drag: none; transition: transform 0.1s ease-out;
+            touch-action: none; /* Disable default actions on canvas */
+        }
+         #preview-canvas {
+            display: block; max-width: 100%;
+            border: 1px solid #d1d5db; border-radius: 0.375rem;
+            background-color: #ffffff;
+            background-image: linear-gradient(45deg, #e5e7eb 25%, transparent 25%), linear-gradient(-45deg, #e5e7eb 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #e5e7eb 75%), linear-gradient(-45deg, transparent 75%, #e5e7eb 75%);
+            background-size: 20px 20px; background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+         }
+         /* Enhancement slider styling */
+        .enhancement-slider { width: 100%; cursor: pointer; }
+        .slider-label {
+            display: flex; justify-content: space-between;
+            font-size: 0.875rem; color: #4b5563;
+        }
+
+        /* Collapsible section styling */
+        details > summary {
+            list-style: none; /* Remove default marker */
+             padding: 1rem; /* p-4 */
+             cursor: pointer;
+             font-weight: 600; /* semibold */
+             color: #374151; /* gray-700 */
+             font-size: 1.125rem; /* text-lg */
+             display: flex;
+             justify-content: space-between;
+             align-items: center;
+             border-bottom: 1px solid #e5e7eb; /* gray-200 */
+        }
+        details > summary::-webkit-details-marker { display: none; } /* Hide marker in Webkit */
+        details > summary::after { /* Custom marker */
+            content: '+';
+            font-size: 1.5em;
+            line-height: 1;
+            transition: transform 0.2s ease-in-out;
+            color: #6b7280; /* gray-500 */
+        }
+        details[open] > summary::after {
+             transform: rotate(45deg);
+        }
+        details .panel-content {
+             padding: 1rem; /* p-4 */
+             border-top: none; /* Remove double border */
+        }
+        /* Add bottom border to summary only when closed */
+        details:not([open]) > summary {
+             border-bottom: none;
+        }
+         /* Add spacing between panels */
+         #bottom-controls > details + details {
+             margin-top: 1.5rem; /* space-y-6 */
+         }
+         .top-panel {
+             background-color: #ffffff;
+             border-radius: 0.5rem; /* rounded-lg */
+             box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1); /* shadow */
+             overflow: hidden;
+         }
+        .bottom-panel {
+             background-color: #ffffff;
+             border-radius: 0.5rem; /* rounded-lg */
+             box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1); /* shadow */
+             overflow: hidden;
+         }
+
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <div class="container mx-auto">
+        <h1 class="text-2xl md:text-3xl font-bold mb-6 text-center text-gray-800">進階照片裁切與增強器 v2 (觸控優化)</h1>
+
+        <!-- Top Controls Bar -->
+        <div id="top-controls" class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+             <!-- Panel 1: Load Image -->
+            <details class="top-panel" open>
+                <summary>1. 載入圖片</summary>
+                <div class="panel-content space-y-3">
+                    <div>
+                        <label for="file-upload" class="block text-sm font-medium text-gray-600 mb-1">本地上傳:</label>
+                        <input type="file" id="file-upload" accept="image/*" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer">
+                    </div>
+                    <div>
+                        <label for="url-input" class="block text-sm font-medium text-gray-600 mb-1">圖片 URL:</label>
+                        <div class="flex">
+                            <input type="url" id="url-input" placeholder="https://..." class="flex-grow p-2 border border-gray-300 rounded-l-md focus:ring-blue-500 focus:border-blue-500 text-sm">
+                            <button id="load-url-btn" class="bg-blue-600 text-white px-4 py-2 rounded-r-md hover:bg-blue-700 text-sm font-medium">載入</button>
+                        </div>
+                    </div>
+                    <div id="loading-indicator" class="text-sm text-blue-600 hidden"><span class="animate-spin inline-block mr-1">⏳</span> 載入中...</div>
+                </div>
+            </details>
+
+             <!-- Panel 2: Crop Settings -->
+             <details class="top-panel" open>
+                <summary>2. 裁切設定</summary>
+                <div class="panel-content space-y-4">
+                    <!-- Aspect Ratio -->
+                    <div>
+                        <label for="aspect-ratio" class="block text-sm font-medium text-gray-600 mb-1">比例選擇:</label>
+                        <select id="aspect-ratio" class="block w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm">
+                            <option value="free">自由比例</option>
+                            <option value="1:1">1:1 (方形)</option>
+                            <option value="4:3">4:3</option>
+                            <option value="3:2">3:2</option>
+                            <option value="16:9">16:9</option>
+                            <option value="custom">自訂比例</option>
+                        </select>
+                        <div id="custom-ratio-inputs" class="mt-2 space-x-2 flex items-center hidden">
+                            <input type="number" id="custom-ratio-w" placeholder="寬" min="1" class="w-1/2 p-2 border border-gray-300 rounded-md text-sm">
+                            <span>:</span>
+                            <input type="number" id="custom-ratio-h" placeholder="高" min="1" class="w-1/2 p-2 border border-gray-300 rounded-md text-sm">
+                            <button id="swap-ratio-btn" class="p-1 text-gray-500 hover:text-blue-600" title="互換比例">
+                                <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/repeat.svg" alt="互換" class="w-4 h-4"/>
+                            </button>
+                        </div>
+                    </div>
+                    <!-- Crop Size -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-600 mb-1">裁切尺寸 (輸出):</label>
+                        <div class="flex items-center space-x-2 mb-2">
+                        <select id="crop-size-preset" class="flex-grow p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm">
+                                <option value="auto">自動 (依裁切框)</option>
+                                <option value="custom">自訂尺寸</option>
+                                <option value="id_1_inch">1吋證件照 (2.5 x 3.5 cm)</option>
+                                <option value="id_2_inch">2吋證件照 (3.5 x 4.5 cm)</option>
+                                <option value="photo_4x6">4x6 相片 (10.2 x 15.2 cm)</option>
+                        </select>
+                        <select id="unit-select" class="p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm">
+                                <option value="px">px</option>
+                                <option value="cm">cm</option>
+                                <option value="inch">inch</option>
+                        </select>
+                        </div>
+                        <div id="custom-size-inputs" class="mt-2 space-x-2 flex items-center hidden">
+                            <input type="number" id="custom-size-w" placeholder="寬" min="1" class="w-1/2 p-2 border border-gray-300 rounded-md text-sm">
+                            <input type="number" id="custom-size-h" placeholder="高" min="1" class="w-1/2 p-2 border border-gray-300 rounded-md text-sm">
+                            <button id="swap-size-btn" class="p-1 text-gray-500 hover:text-blue-600" title="互換尺寸">
+                            <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/repeat.svg" alt="互換" class="w-4 h-4"/>
+                            </button>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-1">預設輸出 DPI: 300 (用於 cm/inch 轉換)</p>
+                    </div>
+                    <!-- Crop Shape -->
+                    <div>
+                        <label for="crop-shape" class="block text-sm font-medium text-gray-600 mb-1">裁切框形狀:</label>
+                        <select id="crop-shape" class="block w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm">
+                            <option value="rectangle">四邊形</option>
+                            <option value="circle">圓形/橢圓</option>
+                            <option value="heart">愛心</option>
+                            <option value="star">星星 (5角)</option>
+                        </select>
+                        <p class="text-xs text-gray-500 mt-1">提示: 愛心/星星形狀預覽框仍為矩形/橢圓，僅最終裁切生效。</p>
+                    </div>
+                </div>
+            </details>
+        </div>
+
+        <!-- Main Content Area -->
+        <div id="main-content" class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Main Workspace -->
+            <div class="lg:col-span-2 bg-white p-4 rounded-lg shadow flex flex-col">
+                <div class="flex justify-between items-center mb-3">
+                     <h2 class="text-lg font-semibold text-gray-700">主要工作區</h2>
+                     <div class="flex items-center space-x-2">
+                         <span class="text-sm text-gray-600">縮放:</span>
+                         <button id="zoom-out-btn" class="p-1.5 bg-gray-200 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed" title="縮小" disabled>
+                             <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/zoom-out.svg" alt="縮小" class="w-4 h-4"/>
+                         </button>
+                         <button id="zoom-in-btn" class="p-1.5 bg-gray-200 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed" title="放大" disabled>
+                             <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/zoom-in.svg" alt="放大" class="w-4 h-4"/>
+                         </button>
+                          <button id="reset-zoom-btn" class="p-1.5 bg-gray-200 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed" title="重設縮放" disabled>
+                             <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/maximize-2.svg" alt="重設" class="w-4 h-4"/>
+                         </button>
+                     </div>
+                </div>
+                <div id="image-container">
+                    <canvas id="source-canvas"></canvas>
+                     <!-- Crop box will be appended here by JS -->
+                </div>
+                <!-- Image/Crop Info -->
+                <div class="mt-2 text-xs text-gray-500 space-y-1">
+                    <p id="image-info">原始圖片: -</p>
+                    <p id="crop-dimensions">裁切範圍 (原始像素): 寬: - px, 高: - px / 寬: - cm, 高: - cm (@300 DPI)</p>
+                    <p>提示：滑鼠滾輪縮放/拖曳平移圖片。拖曳裁切框或控制點調整範圍。工作區顯示為縮放預覽，下方尺寸為實際裁切像素。</p>
+                </div>
+            </div>
+
+            <!-- Preview & Actions -->
+            <div class="lg:col-span-1 flex flex-col space-y-4">
+                 <div class="bg-white p-4 rounded-lg shadow">
+                     <h2 class="text-lg font-semibold text-gray-700 mb-3">執行與預覽</h2>
+                    <button id="crop-btn" class="w-full bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed mb-4" disabled>
+                        執行裁切
+                    </button>
+                    <div class="text-sm text-gray-600 mb-1">裁切結果預覽:</div>
+                    <div class="flex justify-center items-center bg-gray-100 rounded-md p-2 min-h-[150px]">
+                       <canvas id="preview-canvas"></canvas>
+                    </div>
+                    <div id="crop-info" class="text-xs text-gray-500 mt-1 text-center">寬: - px, 高: - px</div>
+                 </div>
+            </div>
+        </div>
+
+         <!-- Bottom Controls -->
+         <div id="bottom-controls" class="mt-6 space-y-6">
+             <!-- Panel 5: Image Enhancement -->
+             <details class="bottom-panel" open>
+                 <summary>增強效果 (可選)</summary>
+                 <div class="panel-content space-y-3">
+                     <div>
+                         <label for="brightness-slider" class="slider-label">
+                             <span>亮度</span><span id="brightness-value">100%</span>
+                         </label>
+                         <input type="range" id="brightness-slider" class="enhancement-slider" min="0" max="200" value="100">
+                     </div>
+                     <div>
+                         <label for="contrast-slider" class="slider-label">
+                             <span>對比度</span><span id="contrast-value">100%</span>
+                         </label>
+                         <input type="range" id="contrast-slider" class="enhancement-slider" min="0" max="200" value="100">
+                     </div>
+                     <div>
+                         <label for="saturation-slider" class="slider-label">
+                             <span>飽和度</span><span id="saturation-value">100%</span>
+                         </label>
+                         <input type="range" id="saturation-slider" class="enhancement-slider" min="0" max="200" value="100">
+                     </div>
+                     <div>
+                         <label for="hue-slider" class="slider-label">
+                             <span>色相</span><span id="hue-value">0°</span>
+                         </label>
+                         <input type="range" id="hue-slider" class="enhancement-slider" min="0" max="360" value="0">
+                     </div>
+                     <button id="reset-filters-btn" class="w-full bg-gray-500 text-white px-4 py-1.5 rounded-md hover:bg-gray-600 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                         重設增強效果
+                     </button>
+                 </div>
+             </details>
+
+             <!-- Panel 4: Save -->
+             <details class="bottom-panel" open>
+                 <summary>儲存結果</summary>
+                 <div class="panel-content space-y-3">
+                     <div>
+                         <label for="file-format" class="block text-sm font-medium text-gray-600 mb-1">檔案格式:</label>
+                         <select id="file-format" class="block w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm">
+                             <option value="image/png">PNG (建議用於透明背景)</option>
+                             <option value="image/jpeg">JPG</option>
+                             <option value="image/gif">GIF</option>
+                             <option value="image/svg+xml">SVG (嵌入)</option>
+                         </select>
+                     </div>
+                     <div>
+                         <label for="file-name" class="block text-sm font-medium text-gray-600 mb-1">檔案名稱:</label>
+                         <input type="text" id="file-name" value="cropped_image" class="block w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm">
+                     </div>
+                     <button id="download-btn" class="w-full bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                         下載圖片
+                     </button>
+                 </div>
+             </details>
+         </div>
+
+
+        <div id="message-box" class="message-box"></div>
+    </div>
+
+    <script>
+        // --- DOM Elements ---
+        const fileUpload = document.getElementById('file-upload');
+        const urlInput = document.getElementById('url-input');
+        const loadUrlBtn = document.getElementById('load-url-btn');
+        const loadingIndicator = document.getElementById('loading-indicator');
+        const aspectRatioSelect = document.getElementById('aspect-ratio');
+        const customRatioInputs = document.getElementById('custom-ratio-inputs');
+        const customRatioW = document.getElementById('custom-ratio-w');
+        const customRatioH = document.getElementById('custom-ratio-h');
+        const swapRatioBtn = document.getElementById('swap-ratio-btn');
+        const cropSizePresetSelect = document.getElementById('crop-size-preset');
+        const unitSelect = document.getElementById('unit-select');
+        const customSizeInputs = document.getElementById('custom-size-inputs');
+        const customSizeW = document.getElementById('custom-size-w');
+        const customSizeH = document.getElementById('custom-size-h');
+        const swapSizeBtn = document.getElementById('swap-size-btn');
+        const cropShapeSelect = document.getElementById('crop-shape');
+        const cropBtn = document.getElementById('crop-btn');
+        const previewCanvas = document.getElementById('preview-canvas');
+        const previewCtx = previewCanvas.getContext('2d');
+        const cropInfo = document.getElementById('crop-info'); // Preview canvas size info
+        const fileFormatSelect = document.getElementById('file-format');
+        const fileNameInput = document.getElementById('file-name');
+        const downloadBtn = document.getElementById('download-btn');
+        const imageContainer = document.getElementById('image-container');
+        const sourceCanvas = document.getElementById('source-canvas');
+        const sourceCtx = sourceCanvas.getContext('2d');
+        const messageBox = document.getElementById('message-box');
+        const imageInfo = document.getElementById('image-info'); // Original image info
+        const cropDimensions = document.getElementById('crop-dimensions'); // Crop selection dimensions
+
+        // Zoom buttons
+        const zoomInBtn = document.getElementById('zoom-in-btn');
+        const zoomOutBtn = document.getElementById('zoom-out-btn');
+        const resetZoomBtn = document.getElementById('reset-zoom-btn');
+
+        // Enhancement Sliders
+        const brightnessSlider = document.getElementById('brightness-slider');
+        const contrastSlider = document.getElementById('contrast-slider');
+        const saturationSlider = document.getElementById('saturation-slider');
+        const hueSlider = document.getElementById('hue-slider');
+        const brightnessValue = document.getElementById('brightness-value');
+        const contrastValue = document.getElementById('contrast-value');
+        const saturationValue = document.getElementById('saturation-value');
+        const hueValue = document.getElementById('hue-value');
+        const resetFiltersBtn = document.getElementById('reset-filters-btn');
+
+
+        // --- State Variables ---
+        let image = null; // Original Image object
+        let imageLoaded = false;
+        let cropBox = null; // Crop box DOM element
+        let cropParams = { // Crop box parameters (relative to canvas visible area)
+            x: 0.1, y: 0.1, width: 0.8, height: 0.8,
+            aspectRatio: null, // Locked aspect ratio (number), null for free
+            shape: 'rectangle', // 'rectangle', 'circle', 'heart', 'star'
+            lockedSize: null // { width: value, height: value, unit: 'px'|'cm'|'inch', dpi: 300 }
+        };
+        let isDraggingCropBox = false;
+        let isResizingCropBox = false;
+        let isPanningImage = false; // For dragging the image itself
+        let activeInteraction = false; // General flag for any touch/mouse interaction
+        let resizeHandle = null; // 'tl', 'tr', 'bl', 'br', 'tm', 'bm', 'ml', 'mr'
+        let startX, startY, startCropX_px, startCropY_px, startCropWidth_px, startCropHeight_px; // Use pixels relative to canvas for drag/resize calcs
+        let startPanX, startPanY; // For image panning
+        const DPI = 300; // Default output DPI
+
+        // Zoom and Pan State
+        let zoomLevel = 1;
+        let viewOffsetX = 0; // Offset X of the image center relative to canvas center (in image pixels)
+        let viewOffsetY = 0; // Offset Y
+        let sourceViewRect = { sx: 0, sy: 0, sWidth: 0, sHeight: 0 }; // Area of original image shown on canvas
+
+        // Enhancement Filter State
+        let filters = {
+            brightness: 100,
+            contrast: 100,
+            saturation: 100,
+            hue: 0
+        };
+        const minSizePx = 20; // Minimum crop box size in screen pixels (increased for touch)
+
+        // --- Helper Functions ---
+        function showMessage(message, type = 'success', duration = 3000) {
+            messageBox.textContent = message;
+            messageBox.className = `message-box ${type} show`;
+            setTimeout(() => {
+                messageBox.classList.remove('show');
+            }, duration);
+        }
+
+        function enableControls() {
+            const enabled = imageLoaded;
+            cropBtn.disabled = !enabled;
+            // Enable download only if preview exists
+            downloadBtn.disabled = !(previewCanvas.width > 0 && previewCanvas.height > 0);
+            zoomInBtn.disabled = !enabled;
+            zoomOutBtn.disabled = !enabled;
+            resetZoomBtn.disabled = !enabled;
+            resetFiltersBtn.disabled = !enabled;
+            brightnessSlider.disabled = !enabled;
+            contrastSlider.disabled = !enabled;
+            saturationSlider.disabled = !enabled;
+            hueSlider.disabled = !enabled;
+        }
+
+        function disableControls() {
+            cropBtn.disabled = true;
+            downloadBtn.disabled = true;
+            zoomInBtn.disabled = true;
+            zoomOutBtn.disabled = true;
+            resetZoomBtn.disabled = true;
+            resetFiltersBtn.disabled = true;
+             brightnessSlider.disabled = true;
+            contrastSlider.disabled = true;
+            saturationSlider.disabled = true;
+            hueSlider.disabled = true;
+        }
+
+        function convertToPx(value, unit) {
+            if (unit === 'px') return value;
+            if (unit === 'cm') return Math.round((value / 2.54) * DPI);
+            if (unit === 'inch') return Math.round(value * DPI);
+            return value;
+        }
+
+        function convertFromPx(value, unit, precision = 2) {
+             if (unit === 'px') return Math.round(value);
+             if (unit === 'cm') return parseFloat(((value / DPI) * 2.54).toFixed(precision));
+             if (unit === 'inch') return parseFloat((value / DPI).toFixed(precision));
+             return value;
+        }
+
+        function getCanvasMousePos(canvas, evt) {
+            const rect = canvas.getBoundingClientRect();
+             if (!rect.width || !rect.height) return { x: 0, y: 0 }; // Avoid division by zero
+
+             const coords = getEventCoords(evt); // Use helper for touch/mouse
+             if (coords === null) return {x: NaN, y: NaN}; // Handle no coords case
+
+            const scaleX = canvas.width / rect.width;    // relationship bitmap vs. element for X
+            const scaleY = canvas.height / rect.height;  // relationship bitmap vs. element for Y
+
+            return {
+                x: (coords.x - rect.left) * scaleX,   // scale mouse coordinates after they have
+                y: (coords.y - rect.top) * scaleY     // been adjusted to be relative to element
+            }
+        }
+
+        // --- NEW: Helper to get coordinates from mouse or touch event ---
+        function getEventCoords(e) {
+            if (e.touches && e.touches.length > 0) {
+                // Use the first touch point for single-touch interactions
+                return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+            } else if (e.changedTouches && e.changedTouches.length > 0) {
+                // Use changedTouches for touchend/touchcancel events
+                return { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY };
+            } else if (typeof e.clientX !== 'undefined' && typeof e.clientY !== 'undefined') {
+                // Mouse event
+                return { x: e.clientX, y: e.clientY };
+            }
+            return null; // No coordinates found
+        }
+
+
+         // Calculate the portion of the source image to draw based on zoom/offset
+        function calculateSourceViewRect() {
+             if (!imageLoaded || !image.naturalWidth || !image.naturalHeight) return { sx: 0, sy: 0, sWidth: 0, sHeight: 0 };
+
+             const canvasWidth = sourceCanvas.width;
+             const canvasHeight = sourceCanvas.height;
+              if (!canvasWidth || !canvasHeight) return { sx: 0, sy: 0, sWidth: 0, sHeight: 0 };
+
+             const imgWidth = image.naturalWidth;
+             const imgHeight = image.naturalHeight;
+
+             // Dimensions of the view in original image pixels
+             let sWidth = imgWidth / zoomLevel;
+             let sHeight = imgHeight / zoomLevel;
+
+             // Center point of the view in original image pixels
+             const centerX = imgWidth / 2 + viewOffsetX;
+             const centerY = imgHeight / 2 + viewOffsetY;
+
+             // Top-left corner of the view in original image pixels
+             let sx = centerX - sWidth / 2;
+             let sy = centerY - sHeight / 2;
+
+             // Clamp the view to the image boundaries
+             if (sx < 0) sx = 0;
+             if (sy < 0) sy = 0;
+             if (sx + sWidth > imgWidth) {
+                  sWidth = imgWidth - sx;
+             }
+             if (sy + sHeight > imgHeight) {
+                 sHeight = imgHeight - sy;
+             }
+             sx = Math.max(0, sx);
+             sy = Math.max(0, sy);
+             sWidth = Math.max(1, sWidth);
+             sHeight = Math.max(1, sHeight);
+             if (sx + sWidth > imgWidth) sx = imgWidth - sWidth;
+             if (sy + sHeight > imgHeight) sy = imgHeight - sHeight;
+             sx = Math.max(0, sx);
+             sy = Math.max(0, sy);
+
+
+             return { sx, sy, sWidth, sHeight };
+         }
+
+        // --- Image Loading & Drawing ---
+        function loadImage(src) {
+            loadingIndicator.classList.remove('hidden');
+            disableControls();
+            if (cropBox) { // Remove old crop box if exists
+                cropBox.remove();
+                cropBox = null;
+            }
+             // Clear preview
+             previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+             previewCanvas.width = 0;
+             previewCanvas.height = 0;
+             cropInfo.textContent = `寬: - px, 高: - px`;
+
+            image = new Image();
+            if (src.startsWith('http') || src.startsWith('//')) { // Handle protocol-relative URLs too
+                image.crossOrigin = "Anonymous";
+            }
+            image.onload = () => {
+                imageLoaded = true;
+                zoomLevel = 1;
+                viewOffsetX = 0;
+                viewOffsetY = 0;
+                resetFilters(false); // Reset filters without redrawing yet
+
+                 if (!image.naturalWidth || !image.naturalHeight) {
+                    image.onerror(); // Treat zero-dimension image as error
+                    return;
+                }
+
+                // Set canvas size based on container AFTER image dimensions are known
+                const containerWidth = imageContainer.clientWidth;
+                const containerHeight = imageContainer.clientHeight;
+                sourceCanvas.width = containerWidth;
+                sourceCanvas.height = containerHeight;
+
+                 // Calculate initial zoom to fit the image within the container
+                let initialZoom = 1;
+                if (image.naturalWidth > 0 && image.naturalHeight > 0 && containerWidth > 0 && containerHeight > 0) {
+                    initialZoom = Math.min(containerWidth / image.naturalWidth, containerHeight / image.naturalHeight);
+                }
+                initialZoom = Math.max(initialZoom, 0.01); // Ensure minimum zoom
+                zoomLevel = initialZoom;
+
+
+                sourceCtx.imageSmoothingEnabled = true;
+                sourceCtx.imageSmoothingQuality = 'medium';
+
+                const wCm = convertFromPx(image.naturalWidth, 'cm');
+                const hCm = convertFromPx(image.naturalHeight, 'cm');
+                imageInfo.textContent = `原始圖片: ${image.naturalWidth} x ${image.naturalHeight} px (${wCm} x ${hCm} cm @${DPI} DPI)`;
+
+                redrawSourceCanvas(); // Initial draw (includes filter apply)
+                loadingIndicator.classList.add('hidden');
+                showMessage('圖片載入成功', 'success');
+                resetCropBox(); // Initialize crop box AFTER initial draw
+                enableControls();
+            };
+            image.onerror = (err) => {
+                 console.error("Image loading error:", err);
+                loadingIndicator.classList.add('hidden');
+                showMessage('圖片載入失敗，請檢查 URL 或檔案', 'error');
+                imageLoaded = false;
+                disableControls();
+                sourceCtx.clearRect(0, 0, sourceCanvas.width, sourceCanvas.height);
+                sourceCanvas.width = 0;
+                sourceCanvas.height = 0;
+                 imageInfo.textContent = `原始圖片: -`;
+                 cropDimensions.textContent = `裁切範圍 (原始像素): 寬: - px, 高: - px / 寬: - cm, 高: - cm (@${DPI} DPI)`;
+                if (cropBox) {
+                    cropBox.remove();
+                    cropBox = null;
+                }
+                 previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+                 previewCanvas.width = 0;
+                 previewCanvas.height = 0;
+                 cropInfo.textContent = `寬: - px, 高: - px`;
+            };
+             image.src = src;
+         }
+
+         function redrawSourceCanvas() {
+             if (!imageLoaded || !sourceCanvas.width || !sourceCanvas.height) return;
+
+             // Don't use rAF here if called from interactive updates like pan/zoom
+             // Let the interaction loop handle its own timing. rAF is good for initial draw or non-critical updates.
+             sourceCtx.save();
+             sourceCtx.fillStyle = '#E5E7EB'; // gray-200
+             sourceCtx.fillRect(0, 0, sourceCanvas.width, sourceCanvas.height);
+             applyCanvasFilters();
+
+             sourceViewRect = calculateSourceViewRect();
+             const { sx, sy, sWidth, sHeight } = sourceViewRect;
+
+             if (sWidth > 0 && sHeight > 0 && image.complete && image.naturalWidth > 0) {
+                 try {
+                     sourceCtx.drawImage(
+                         image,
+                         sx, sy, sWidth, sHeight,
+                         0, 0, sourceCanvas.width, sourceCanvas.height
+                     );
+                 } catch (e) {
+                     console.error("Error drawing image:", e, { sx, sy, sWidth, sHeight });
+                      sourceCtx.fillStyle = 'red';
+                      sourceCtx.font = '16px sans-serif';
+                      sourceCtx.fillText('無法繪製圖片', 10, 30);
+                 }
+             } else if (!image.complete || image.naturalWidth === 0) {
+                  console.warn("Redraw attempted before image was fully ready or has zero dimensions.");
+             } else {
+                  console.warn("Calculated source view rectangle has zero dimensions.", { sx, sy, sWidth, sHeight });
+             }
+
+             sourceCtx.restore(); // Restore context (removes filter effect)
+
+             // Update crop box position AFTER the canvas has been redrawn
+             if (cropBox) {
+                 updateCropBoxPosition(); // This function now updates style directly
+             }
+         }
+
+
+        fileUpload.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => loadImage(e.target.result);
+                reader.readAsDataURL(file);
+                event.target.value = null; // Reset file input
+            }
+        });
+
+        loadUrlBtn.addEventListener('click', () => {
+            const url = urlInput.value.trim();
+             if (url && (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:image'))) {
+                 loadImage(url);
+             } else {
+                 showMessage('請輸入有效的圖片 URL (http, https, data:)', 'error');
+             }
+        });
+
+        // --- Zoom and Pan ---
+        // Wheel zoom (keep for desktop)
+        imageContainer.addEventListener('wheel', (e) => {
+            if (!imageLoaded || activeInteraction) return; // Prevent zoom during drag/pan/resize
+            e.preventDefault();
+            e.stopPropagation();
+
+            const zoomIntensity = 0.1;
+            const direction = e.deltaY < 0 ? 1 : -1;
+            const zoomFactor = 1 + direction * zoomIntensity;
+
+            const mousePos = getCanvasMousePos(sourceCanvas, e);
+            if (isNaN(mousePos.x) || isNaN(mousePos.y)) return;
+
+            const { sx, sy, sWidth, sHeight } = calculateSourceViewRect();
+            const mouseX_img = sx + (mousePos.x / sourceCanvas.width) * sWidth;
+            const mouseY_img = sy + (mousePos.y / sourceCanvas.height) * sHeight;
+
+             const minZoomFactor = 0.1;
+             const maxZoomFactor = 20;
+             const baseZoom = image.naturalWidth > 0 ? Math.min(sourceCanvas.width / image.naturalWidth, sourceCanvas.height / image.naturalHeight, 1) : 1;
+             const minZoom = baseZoom * minZoomFactor;
+             const maxZoom = baseZoom * maxZoomFactor;
+
+            const newZoomLevel = Math.max(minZoom, Math.min(zoomLevel * zoomFactor, maxZoom));
+             const actualZoomChange = newZoomLevel / zoomLevel;
+
+            const newOffsetX = mouseX_img - image.naturalWidth / 2 - (mousePos.x - sourceCanvas.width / 2) * (image.naturalWidth / (sourceCanvas.width * newZoomLevel));
+            const newOffsetY = mouseY_img - image.naturalHeight / 2 - (mousePos.y - sourceCanvas.height / 2) * (image.naturalHeight / (sourceCanvas.height * newZoomLevel));
+
+            zoomLevel = newZoomLevel;
+             viewOffsetX = newOffsetX;
+             viewOffsetY = newOffsetY;
+
+            // Clamp offsets after zoom adjustment
+             const currentViewRect = calculateSourceViewRect();
+              viewOffsetX = Math.max(-image.naturalWidth/2 + currentViewRect.sWidth/2 , Math.min(viewOffsetX, image.naturalWidth/2 - currentViewRect.sWidth/2));
+              viewOffsetY = Math.max(-image.naturalHeight/2 + currentViewRect.sHeight/2, Math.min(viewOffsetY, image.naturalHeight/2 - currentViewRect.sHeight/2));
+
+            redrawSourceCanvas();
+        });
+
+        zoomInBtn.addEventListener('click', () => {
+             if (!imageLoaded) return;
+             const baseZoom = image.naturalWidth > 0 ? Math.min(sourceCanvas.width / image.naturalWidth, sourceCanvas.height / image.naturalHeight, 1) : 1;
+             const maxZoom = baseZoom * 20;
+             zoomLevel = Math.min(maxZoom, zoomLevel * 1.25);
+             redrawSourceCanvas();
+        });
+
+        zoomOutBtn.addEventListener('click', () => {
+             if (!imageLoaded) return;
+              const baseZoom = image.naturalWidth > 0 ? Math.min(sourceCanvas.width / image.naturalWidth, sourceCanvas.height / image.naturalHeight, 1) : 1;
+             const minZoom = baseZoom * 0.1;
+             zoomLevel = Math.max(minZoom, zoomLevel / 1.25);
+             // Clamp offsets after zoom
+              const currentViewRect = calculateSourceViewRect();
+              viewOffsetX = Math.max(-image.naturalWidth/2 + currentViewRect.sWidth/2 , Math.min(viewOffsetX, image.naturalWidth/2 - currentViewRect.sWidth/2));
+              viewOffsetY = Math.max(-image.naturalHeight/2 + currentViewRect.sHeight/2, Math.min(viewOffsetY, image.naturalHeight/2 - currentViewRect.sHeight/2));
+             redrawSourceCanvas();
+        });
+
+        resetZoomBtn.addEventListener('click', () => {
+             if (!imageLoaded) return;
+             const containerWidth = imageContainer.clientWidth;
+             const containerHeight = imageContainer.clientHeight;
+             zoomLevel = 1;
+              if (image.naturalWidth > 0 && image.naturalHeight > 0 && containerWidth > 0 && containerHeight > 0) {
+                 zoomLevel = Math.min(containerWidth / image.naturalWidth, containerHeight / image.naturalHeight);
+             }
+             zoomLevel = Math.max(zoomLevel, 0.01);
+             viewOffsetX = 0;
+             viewOffsetY = 0;
+             redrawSourceCanvas();
+        });
+
+        // --- Interaction Start (Combined Mouse/Touch) ---
+        imageContainer.addEventListener('mousedown', handleInteractionStart);
+        imageContainer.addEventListener('touchstart', handleInteractionStart, { passive: false }); // Need passive false for panning preventDefault
+
+        function handleInteractionStart(e) {
+            if (!imageLoaded) return;
+
+             // Prevent interaction if clicking/touching on crop box or handles
+             if (cropBox && (e.target === cropBox || cropBox.contains(e.target))) {
+                // Crop box/handle interactions are handled by their own listeners
+                return;
+             }
+
+             // Check for mouse left button or single touch
+             const isMouseEvent = e.type === 'mousedown';
+             const isTouchEvent = e.type === 'touchstart';
+
+             if (isMouseEvent && e.button !== 0) return;
+             if (isTouchEvent && e.touches.length !== 1) return; // Only handle single touch pan for now
+
+             // Start Panning Image
+             isPanningImage = true;
+             isDraggingCropBox = false;
+             isResizingCropBox = false;
+             activeInteraction = true;
+
+             const coords = getEventCoords(e);
+             if (!coords) return; // Safety check
+
+             startPanX = coords.x;
+             startPanY = coords.y;
+             imageContainer.style.cursor = 'grabbing'; // Visual cue
+
+             // Add move/end listeners to the document
+             document.addEventListener('mousemove', handleInteractionMove);
+             document.addEventListener('touchmove', handleInteractionMove, { passive: false }); // Need passive false for preventDefault
+
+             document.addEventListener('mouseup', handleInteractionEnd, { once: true });
+             document.addEventListener('touchend', handleInteractionEnd, { once: true });
+             document.addEventListener('touchcancel', handleInteractionEnd, { once: true }); // Handle cancellation
+
+             // Prevent default touch action (like scrolling) ONLY if it's a touch event starting panning
+             if (isTouchEvent) {
+                 e.preventDefault();
+             }
+        }
+
+        // --- Interaction Move (Combined Mouse/Touch) ---
+        function handleInteractionMove(e) {
+            if (!activeInteraction) return;
+
+            // Prevent default page scroll/zoom during touch interaction
+            if (e.type === 'touchmove') {
+                e.preventDefault();
+            }
+
+            if (isPanningImage) {
+                panImage(e);
+            } else if (isDraggingCropBox) {
+                dragCropBox(e);
+            } else if (isResizingCropBox) {
+                resizeCropBox(e);
+            }
+        }
+
+        // --- Interaction End (Combined Mouse/Touch) ---
+        function handleInteractionEnd(e) {
+            if (!activeInteraction) return;
+
+            // Reset flags and cursor
+             if (isPanningImage) {
+                 imageContainer.style.cursor = 'grab';
+             } else if (isDraggingCropBox) {
+                 cropBox.style.cursor = 'move';
+             }
+             // Resize handles don't need cursor reset here, it's set via CSS
+
+            isPanningImage = false;
+            isDraggingCropBox = false;
+            isResizingCropBox = false;
+            activeInteraction = false;
+            resizeHandle = null;
+
+            // Remove global listeners
+            document.removeEventListener('mousemove', handleInteractionMove);
+            document.removeEventListener('touchmove', handleInteractionMove);
+            document.removeEventListener('mouseup', handleInteractionEnd);
+            document.removeEventListener('touchend', handleInteractionEnd);
+            document.removeEventListener('touchcancel', handleInteractionEnd);
+        }
+
+
+        // --- Image Panning Logic ---
+        function panImage(e) {
+             // This function is now called by handleInteractionMove
+            const coords = getEventCoords(e);
+            if (!coords) return;
+
+            const dx = coords.x - startPanX;
+            const dy = coords.y - startPanY;
+
+             const { sWidth, sHeight } = calculateSourceViewRect();
+             if (sWidth <= 0 || sHeight <= 0) return; // Avoid division by zero
+
+             const canvasRect = sourceCanvas.getBoundingClientRect();
+             if (!canvasRect.width || !canvasRect.height) return;
+
+             const deltaX_img = -(dx / canvasRect.width) * sWidth;
+             const deltaY_img = -(dy / canvasRect.height) * sHeight;
+
+            let newOffsetX = viewOffsetX + deltaX_img;
+            let newOffsetY = viewOffsetY + deltaY_img;
+
+            // Clamp offsets
+             const maxAbsOffsetX = Math.max(0, (image.naturalWidth - sWidth) / 2);
+             const maxAbsOffsetY = Math.max(0, (image.naturalHeight - sHeight) / 2);
+             newOffsetX = Math.max(-maxAbsOffsetX, Math.min(newOffsetX, maxAbsOffsetX));
+             newOffsetY = Math.max(-maxAbsOffsetY, Math.min(newOffsetY, maxAbsOffsetY));
+
+             viewOffsetX = newOffsetX;
+             viewOffsetY = newOffsetY;
+
+             startPanX = coords.x;
+             startPanY = coords.y;
+
+             redrawSourceCanvas();
+         }
+         // No separate stopPanImage needed, handled by handleInteractionEnd
+
+        // --- Crop Box Logic ---
+        function createCropBox() {
+            if (cropBox) cropBox.remove();
+
+            cropBox = document.createElement('div');
+            cropBox.className = 'crop-box';
+
+            const handles = ['tl', 'tr', 'bl', 'br', 'tm', 'bm', 'ml', 'mr'];
+            handles.forEach(handleType => {
+                const handle = document.createElement('div');
+                handle.className = `handle ${handleType}`;
+                handle.dataset.handle = handleType;
+                cropBox.appendChild(handle);
+                // Add listeners for both mouse and touch to handles
+                handle.addEventListener('mousedown', startResizeCropBox);
+                handle.addEventListener('touchstart', startResizeCropBox, { passive: false }); // Needs passive false
+            });
+
+            imageContainer.appendChild(cropBox);
+            // Add listeners for both mouse and touch to crop box itself
+            cropBox.addEventListener('mousedown', startDragCropBox);
+            cropBox.addEventListener('touchstart', startDragCropBox, { passive: false }); // Needs passive false
+
+            updateCropBoxPosition(); // Initial position
+        }
+
+        function updateCropBoxPosition() {
+            if (!cropBox || !imageLoaded || !sourceCanvas.width || !sourceCanvas.height) return;
+
+            // Update visual style (circle)
+            if (cropParams.shape === 'circle' && !cropBox.classList.contains('circle')) {
+                cropBox.classList.add('circle');
+            } else if (cropParams.shape !== 'circle' && cropBox.classList.contains('circle')) {
+                cropBox.classList.remove('circle');
+            }
+
+            const canvasRect = sourceCanvas.getBoundingClientRect();
+            const containerRect = imageContainer.getBoundingClientRect();
+            const canvasOffsetX = canvasRect.left - containerRect.left;
+            const canvasOffsetY = canvasRect.top - containerRect.top;
+
+            const boxX_px = cropParams.x * sourceCanvas.width;
+            const boxY_px = cropParams.y * sourceCanvas.height;
+            let boxW_px = cropParams.width * sourceCanvas.width;
+            let boxH_px = cropParams.height * sourceCanvas.height;
+
+            // Ensure minimum dimensions visually
+            boxW_px = Math.max(minSizePx, boxW_px);
+            boxH_px = Math.max(minSizePx, boxH_px);
+
+            cropBox.style.left = `${canvasOffsetX + boxX_px}px`;
+            cropBox.style.top = `${canvasOffsetY + boxY_px}px`;
+            cropBox.style.width = `${boxW_px}px`;
+            cropBox.style.height = `${boxH_px}px`;
+
+            // Calculate Crop Dimensions (Original Pixels)
+            const { sx, sy, sWidth, sHeight } = calculateSourceViewRect();
+            let cropPixelWidth = 0;
+            let cropPixelHeight = 0;
+            if (sWidth > 0 && sHeight > 0) {
+                 cropPixelWidth = Math.round(cropParams.width * sWidth);
+                 cropPixelHeight = Math.round(cropParams.height * sHeight);
+            }
+
+            const cropCmWidth = convertFromPx(cropPixelWidth, 'cm');
+            const cropCmHeight = convertFromPx(cropPixelHeight, 'cm');
+            cropDimensions.textContent = `裁切範圍 (原始像素): 寬: ${cropPixelWidth} px, 高: ${cropPixelHeight} px / 寬: ${cropCmWidth} cm, 高: ${cropCmHeight} cm (@${DPI} DPI)`;
+
+            // Update handle visibility
+            const handles = cropBox.querySelectorAll('.handle');
+            const isLockedRatio = cropParams.aspectRatio !== null || cropParams.lockedSize !== null;
+            const isVisuallyLocked = isLockedRatio || cropParams.shape === 'circle';
+
+            handles.forEach(h => {
+                const handleType = h.dataset.handle;
+                if (isVisuallyLocked) {
+                    h.style.display = ['tl', 'tr', 'bl', 'br'].includes(handleType) ? 'block' : 'none';
+                } else {
+                    h.style.display = 'block';
+                }
+            });
+        }
+
+
+        function resetCropBox() {
+             if (!imageLoaded || !sourceCanvas.width || !sourceCanvas.height) return;
+
+             const canvasWidth = sourceCanvas.width;
+             const canvasHeight = sourceCanvas.height;
+             const canvasRatio = canvasWidth / canvasHeight;
+
+             let targetRatio = cropParams.aspectRatio;
+             if (cropParams.lockedSize) {
+                 const targetW_px = convertToPx(cropParams.lockedSize.width, cropParams.lockedSize.unit);
+                 const targetH_px = convertToPx(cropParams.lockedSize.height, cropParams.lockedSize.unit);
+                 if (targetW_px > 0 && targetH_px > 0) {
+                     targetRatio = targetW_px / targetH_px;
+                 } else {
+                     targetRatio = null;
+                 }
+                 cropParams.aspectRatio = targetRatio;
+             } else if (cropParams.shape === 'circle') {
+                 targetRatio = 1;
+                 cropParams.aspectRatio = 1;
+             }
+
+             let newWidthRatio = 0.8;
+             let newHeightRatio = 0.8;
+
+             if (targetRatio) {
+                 if (canvasRatio > targetRatio) {
+                     newHeightRatio = 0.8;
+                     newWidthRatio = newHeightRatio * targetRatio;
+                     if (newWidthRatio > 0.95) {
+                         newWidthRatio = 0.95;
+                         newHeightRatio = newWidthRatio / targetRatio;
+                     }
+                 } else {
+                     newWidthRatio = 0.8;
+                     newHeightRatio = newWidthRatio / targetRatio;
+                      if (newHeightRatio > 0.95) {
+                         newHeightRatio = 0.95;
+                         newWidthRatio = newHeightRatio * targetRatio;
+                     }
+                 }
+             }
+             newWidthRatio = Math.max(0.01, Math.min(0.95, newWidthRatio));
+             newHeightRatio = Math.max(0.01, Math.min(0.95, newHeightRatio));
+
+             cropParams.width = newWidthRatio;
+             cropParams.height = newHeightRatio;
+             cropParams.x = (1 - newWidthRatio) / 2;
+             cropParams.y = (1 - newHeightRatio) / 2;
+
+            if (!cropBox) {
+                createCropBox();
+            } else {
+                updateCropBoxPosition();
+            }
+        }
+
+        // --- Crop Box Dragging Start ---
+        function startDragCropBox(e) {
+             if (!imageLoaded || activeInteraction) return; // Prevent starting new drag if already interacting
+
+             const isMouseEvent = e.type === 'mousedown';
+             const isTouchEvent = e.type === 'touchstart';
+
+             if (isMouseEvent && e.button !== 0) return;
+             if (isTouchEvent && e.touches.length !== 1) return;
+
+             // Only start dragging if the event target is the crop box itself (not handles)
+             if (e.target !== cropBox) return;
+
+             e.stopPropagation(); // Prevent triggering image pan
+
+             isDraggingCropBox = true;
+             isResizingCropBox = false;
+             isPanningImage = false;
+             activeInteraction = true;
+
+             const coords = getEventCoords(e);
+             if (!coords) return;
+
+             startX = coords.x;
+             startY = coords.y;
+             startCropX_px = cropParams.x * sourceCanvas.width;
+             startCropY_px = cropParams.y * sourceCanvas.height;
+             cropBox.style.cursor = 'grabbing';
+
+             // Add generic move/end listeners (handleInteractionMove/End will manage them)
+             document.addEventListener('mousemove', handleInteractionMove);
+             document.addEventListener('touchmove', handleInteractionMove, { passive: false });
+             document.addEventListener('mouseup', handleInteractionEnd, { once: true });
+             document.addEventListener('touchend', handleInteractionEnd, { once: true });
+             document.addEventListener('touchcancel', handleInteractionEnd, { once: true });
+
+             if (isTouchEvent) {
+                 e.preventDefault(); // Prevent scrolling on touch drag
+             }
+        }
+
+        // --- Crop Box Dragging Logic ---
+        function dragCropBox(e) {
+             // Called by handleInteractionMove
+            const coords = getEventCoords(e);
+            if (!coords) return;
+
+            const dx = coords.x - startX;
+            const dy = coords.y - startY;
+
+            let newCropX_px = startCropX_px + dx;
+            let newCropY_px = startCropY_px + dy;
+            const cropW_px = cropParams.width * sourceCanvas.width;
+            const cropH_px = cropParams.height * sourceCanvas.height;
+
+            // Boundary check
+            newCropX_px = Math.max(0, Math.min(newCropX_px, sourceCanvas.width - cropW_px));
+            newCropY_px = Math.max(0, Math.min(newCropY_px, sourceCanvas.height - cropH_px));
+
+            // Update params
+            cropParams.x = newCropX_px / sourceCanvas.width;
+            cropParams.y = newCropY_px / sourceCanvas.height;
+
+            updateCropBoxPosition();
+        }
+         // No separate stopDragCropBox needed
+
+        // --- Crop Box Resizing Start ---
+        function startResizeCropBox(e) {
+             if (!imageLoaded || activeInteraction) return; // Prevent multiple interactions
+
+             const isMouseEvent = e.type === 'mousedown';
+             const isTouchEvent = e.type === 'touchstart';
+
+             if (isMouseEvent && e.button !== 0) return;
+             if (isTouchEvent && e.touches.length !== 1) return;
+
+             e.stopPropagation(); // Prevent triggering crop box drag or image pan
+
+             isResizingCropBox = true;
+             isDraggingCropBox = false;
+             isPanningImage = false;
+             activeInteraction = true;
+
+             resizeHandle = e.target.dataset.handle;
+             const coords = getEventCoords(e);
+             if (!coords) return;
+
+             startX = coords.x;
+             startY = coords.y;
+             startCropX_px = cropParams.x * sourceCanvas.width;
+             startCropY_px = cropParams.y * sourceCanvas.height;
+             startCropWidth_px = cropParams.width * sourceCanvas.width;
+             startCropHeight_px = cropParams.height * sourceCanvas.height;
+
+             // Add generic move/end listeners
+             document.addEventListener('mousemove', handleInteractionMove);
+             document.addEventListener('touchmove', handleInteractionMove, { passive: false });
+             document.addEventListener('mouseup', handleInteractionEnd, { once: true });
+             document.addEventListener('touchend', handleInteractionEnd, { once: true });
+             document.addEventListener('touchcancel', handleInteractionEnd, { once: true });
+
+              if (isTouchEvent) {
+                 e.preventDefault(); // Prevent scrolling on touch resize
+             }
+         }
+
+         // --- Crop Box Resizing Logic ---
+         function resizeCropBox(e) {
+             // Called by handleInteractionMove
+             if (!resizeHandle || !sourceCanvas.width || !sourceCanvas.height) return;
+
+             const coords = getEventCoords(e);
+             if (!coords) return;
+
+             const dx = coords.x - startX;
+             const dy = coords.y - startY;
+
+             let newX_px = startCropX_px;
+             let newY_px = startCropY_px;
+             let newWidth_px = startCropWidth_px;
+             let newHeight_px = startCropHeight_px;
+
+             const aspectRatio = cropParams.aspectRatio;
+             const isLocked = aspectRatio !== null || cropParams.lockedSize !== null || cropParams.shape === 'circle';
+             const effectiveRatio = isLocked ? (aspectRatio || 1) : null;
+
+             // Calculate potential new dimensions based purely on mouse delta
+             switch (resizeHandle) {
+                 case 'tl':
+                     newWidth_px = startCropWidth_px - dx;
+                     newHeight_px = startCropHeight_px - dy;
+                     newX_px = startCropX_px + dx;
+                     newY_px = startCropY_px + dy;
+                     break;
+                 case 'tr':
+                     newWidth_px = startCropWidth_px + dx;
+                     newHeight_px = startCropHeight_px - dy;
+                     newY_px = startCropY_px + dy;
+                     break;
+                 case 'bl':
+                     newWidth_px = startCropWidth_px - dx;
+                     newHeight_px = startCropHeight_px + dy;
+                     newX_px = startCropX_px + dx;
+                     break;
+                 case 'br':
+                     newWidth_px = startCropWidth_px + dx;
+                     newHeight_px = startCropHeight_px + dy;
+                     break;
+                 case 'tm':
+                     if (!isLocked) { newHeight_px = startCropHeight_px - dy; newY_px = startCropY_px + dy; }
+                     break;
+                 case 'bm':
+                     if (!isLocked) { newHeight_px = startCropHeight_px + dy; }
+                     break;
+                 case 'ml':
+                     if (!isLocked) { newWidth_px = startCropWidth_px - dx; newX_px = startCropX_px + dx; }
+                     break;
+                 case 'mr':
+                     if (!isLocked) { newWidth_px = startCropWidth_px + dx; }
+                     break;
+             }
+
+             // Enforce aspect ratio if locked
+             if (effectiveRatio) {
+                  let adjustWidth = false;
+                  if (['ml', 'mr'].includes(resizeHandle)) adjustWidth = true;
+                  else if (['tm', 'bm'].includes(resizeHandle)) adjustWidth = false;
+                  else { // Corner handles: prioritize based on ratio vs movement? Simpler: use width movement primarily
+                      adjustWidth = true; // Let's try adjusting width first for corners
+                  }
+
+                  if (adjustWidth) {
+                       if (resizeHandle.includes('l')) {
+                           newWidth_px = startCropWidth_px - dx;
+                           newX_px = startCropX_px + dx;
+                       } else { // 'r' or corners
+                           newWidth_px = startCropWidth_px + dx;
+                       }
+                       newHeight_px = newWidth_px / effectiveRatio;
+                        if (resizeHandle.includes('t')) {
+                           newY_px = startCropY_px + (startCropHeight_px - newHeight_px);
+                       }
+                  } else { // adjustHeight (only for 'tm', 'bm' if logic was different)
+                       if (resizeHandle.includes('t')) {
+                           newHeight_px = startCropHeight_px - dy;
+                           newY_px = startCropY_px + dy;
+                       } else {
+                           newHeight_px = startCropHeight_px + dy;
+                       }
+                       newWidth_px = newHeight_px * effectiveRatio;
+                        if (resizeHandle.includes('l')) {
+                            newX_px = startCropX_px + (startCropWidth_px - newWidth_px);
+                        }
+                  }
+                  // Re-evaluate for corner handles if the primary adjustment direction was inadequate
+                  if (['tl', 'tr', 'bl', 'br'].includes(resizeHandle)) {
+                      // If the secondary dimension (e.g., height when width adjusted) caused more significant movement than needed, try the other way
+                      const expectedHeight = (startCropWidth_px + (resizeHandle.includes('l') ? -dx : dx)) / effectiveRatio;
+                      const expectedWidth = (startCropHeight_px + (resizeHandle.includes('t') ? -dy : dy)) * effectiveRatio;
+
+                      // Check if adjusting based on Y movement leads to a smaller overall change delta
+                      const deltaFromYAdjust = Math.abs(expectedWidth - newWidth_px);
+                      const deltaFromXAdjust = Math.abs(expectedHeight - newHeight_px); // This should be near zero if width was primary
+
+                      if (deltaFromYAdjust < Math.abs(dx) * 0.5 && Math.abs(dy) > minSizePx * 0.2) { // Heuristic: if Y move significant and adjusting via Y gives better width
+                           // Recalculate based on height change
+                            if (resizeHandle.includes('t')) {
+                               newHeight_px = startCropHeight_px - dy;
+                               newY_px = startCropY_px + dy;
+                           } else {
+                               newHeight_px = startCropHeight_px + dy;
+                           }
+                           newWidth_px = newHeight_px * effectiveRatio;
+                           if (resizeHandle.includes('l')) {
+                                newX_px = startCropX_px + (startCropWidth_px - newWidth_px);
+                           } else {
+                               // Keep X from original start if adjusting from right corner based on Y
+                               newX_px = startCropX_px;
+                           }
+                      }
+                      // Similar logic if height was adjusted first (not currently the case for corners)
+                  }
+             }
+
+             // Minimum size constraint
+              if (newWidth_px < minSizePx) {
+                  const ratioCorrection = effectiveRatio ? minSizePx / newWidth_px : 1;
+                  newWidth_px = minSizePx;
+                   if (effectiveRatio) newHeight_px *= ratioCorrection;
+                   if (resizeHandle.includes('l')) newX_px = startCropX_px + startCropWidth_px - minSizePx;
+                   else if (!resizeHandle.includes('r')) newX_px = startCropX_px; // Prevent X shift if resizing tm/bm
+               }
+               if (newHeight_px < minSizePx) {
+                   const ratioCorrection = effectiveRatio ? minSizePx / newHeight_px : 1;
+                   newHeight_px = minSizePx;
+                   if (effectiveRatio) newWidth_px *= ratioCorrection;
+                   if (resizeHandle.includes('t')) newY_px = startCropY_px + startCropHeight_px - minSizePx;
+                    else if (!resizeHandle.includes('b')) newY_px = startCropY_px; // Prevent Y shift if resizing ml/mr
+               }
+
+
+            // Boundary checks
+            if (newX_px < 0) {
+                const dxBoundary = -newX_px;
+                newX_px = 0;
+                 if (!resizeHandle.includes('l')) {
+                     newWidth_px -= dxBoundary;
+                     if (effectiveRatio) newHeight_px = newWidth_px / effectiveRatio;
+                 }
+             }
+             if (newY_px < 0) {
+                 const dyBoundary = -newY_px;
+                 newY_px = 0;
+                 if (!resizeHandle.includes('t')) {
+                     newHeight_px -= dyBoundary;
+                     if (effectiveRatio) newWidth_px = newHeight_px * effectiveRatio;
+                 }
+             }
+            if (newX_px + newWidth_px > sourceCanvas.width) {
+                 const dxBoundary = (newX_px + newWidth_px) - sourceCanvas.width;
+                 if (resizeHandle.includes('l')) {
+                     newX_px -= dxBoundary;
+                 } else {
+                     newWidth_px -= dxBoundary;
+                     if (effectiveRatio) newHeight_px = newWidth_px / effectiveRatio;
+                 }
+             }
+            if (newY_px + newHeight_px > sourceCanvas.height) {
+                 const dyBoundary = (newY_px + newHeight_px) - sourceCanvas.height;
+                 if (resizeHandle.includes('t')) {
+                     newY_px -= dyBoundary;
+                 } else {
+                     newHeight_px -= dyBoundary;
+                     if (effectiveRatio) newWidth_px = newHeight_px * effectiveRatio;
+                 }
+             }
+
+             // Final check for validity
+             newWidth_px = Math.max(minSizePx, newWidth_px);
+             newHeight_px = Math.max(minSizePx, newHeight_px);
+
+             // Re-apply ratio one last time to correct boundary distortions
+             if (effectiveRatio) {
+                 if (newWidth_px / newHeight_px > effectiveRatio * 1.01 || newWidth_px / newHeight_px < effectiveRatio * 0.99) {
+                    // Prioritize width, recalculate height (unless handle implies height priority like tm/bm?)
+                    if (['tm', 'bm'].includes(resizeHandle)) {
+                        newWidth_px = newHeight_px * effectiveRatio;
+                    } else {
+                        newHeight_px = newWidth_px / effectiveRatio;
+                    }
+                 }
+             }
+
+             // Final clamp position based on final size
+             newX_px = Math.max(0, Math.min(newX_px, sourceCanvas.width - newWidth_px));
+             newY_px = Math.max(0, Math.min(newY_px, sourceCanvas.height - newHeight_px));
+
+             if (isNaN(newX_px) || isNaN(newY_px) || isNaN(newWidth_px) || isNaN(newHeight_px) || newWidth_px <= 0 || newHeight_px <= 0) {
+                 console.error("Invalid dimensions calculated during resize, stopping update.", {newX_px, newY_px, newWidth_px, newHeight_px});
+                 return;
+             }
+
+             // Update parameters
+             cropParams.x = newX_px / sourceCanvas.width;
+             cropParams.y = newY_px / sourceCanvas.height;
+             cropParams.width = newWidth_px / sourceCanvas.width;
+             cropParams.height = newHeight_px / sourceCanvas.height;
+
+             updateCropBoxPosition();
+         }
+         // No separate stopResizeCropBox needed
+
+
+        // --- Settings Change Events ---
+        aspectRatioSelect.addEventListener('change', (e) => {
+            const value = e.target.value;
+            cropParams.lockedSize = null;
+            cropSizePresetSelect.value = 'auto';
+            unitSelect.value = 'px';
+            unitSelect.disabled = false;
+            customSizeInputs.classList.add('hidden');
+
+            if (value === 'free') {
+                cropParams.aspectRatio = null;
+                customRatioInputs.classList.add('hidden');
+            } else if (value === 'custom') {
+                customRatioInputs.classList.remove('hidden');
+                updateCustomRatio();
+            } else {
+                const parts = value.split(':');
+                cropParams.aspectRatio = parseFloat(parts[0]) / parseFloat(parts[1]);
+                customRatioInputs.classList.add('hidden');
+            }
+            if (imageLoaded) resetCropBox();
+        });
+
+        customRatioW.addEventListener('input', updateCustomRatio);
+        customRatioH.addEventListener('input', updateCustomRatio);
+
+        function updateCustomRatio() {
+             if (aspectRatioSelect.value === 'custom') {
+                const w = parseFloat(customRatioW.value);
+                const h = parseFloat(customRatioH.value);
+                if (w > 0 && h > 0) {
+                    cropParams.aspectRatio = w / h;
+                     cropParams.lockedSize = null;
+                     cropSizePresetSelect.value = 'auto';
+                } else {
+                     cropParams.aspectRatio = null;
+                }
+                 if (imageLoaded) resetCropBox();
+            }
+        }
+
+        swapRatioBtn.addEventListener('click', () => {
+            [customRatioW.value, customRatioH.value] = [customRatioH.value, customRatioW.value];
+            updateCustomRatio();
+        });
+
+        cropSizePresetSelect.addEventListener('change', (e) => {
+            const value = e.target.value;
+            aspectRatioSelect.value = 'free';
+            customRatioInputs.classList.add('hidden');
+            cropParams.aspectRatio = null;
+
+            if (value === 'auto') {
+                cropParams.lockedSize = null;
+                customSizeInputs.classList.add('hidden');
+                unitSelect.disabled = false;
+                unitSelect.value = 'px';
+            } else if (value === 'custom') {
+                cropParams.lockedSize = null;
+                customSizeInputs.classList.remove('hidden');
+                unitSelect.disabled = false;
+                updateCustomSize();
+            } else {
+                customSizeInputs.classList.add('hidden');
+                unitSelect.disabled = true;
+                let w, h, unit;
+                switch (value) {
+                    case 'id_1_inch': w = 2.5; h = 3.5; unit = 'cm'; break;
+                    case 'id_2_inch': w = 3.5; h = 4.5; unit = 'cm'; break;
+                    case 'photo_4x6': w = 4; h = 6; unit = 'inch'; break;
+                    default: w = 0; h = 0; unit = 'px';
+                }
+                 if (w > 0 && h > 0) {
+                    cropParams.lockedSize = { width: w, height: h, unit: unit, dpi: DPI };
+                    unitSelect.value = unit;
+                 } else {
+                     cropParams.lockedSize = null;
+                 }
+            }
+             if (imageLoaded) resetCropBox();
+        });
+
+        unitSelect.addEventListener('change', () => {
+             if (cropSizePresetSelect.value === 'custom') {
+                 updateCustomSize();
+             } else if (cropParams.lockedSize) {
+                  cropParams.lockedSize.unit = unitSelect.value;
+                  if(imageLoaded) resetCropBox();
+             }
+        });
+
+        customSizeW.addEventListener('input', updateCustomSize);
+        customSizeH.addEventListener('input', updateCustomSize);
+
+        function updateCustomSize() {
+             if (cropSizePresetSelect.value === 'custom') {
+                const w = parseFloat(customSizeW.value);
+                const h = parseFloat(customSizeH.value);
+                const unit = unitSelect.value;
+                if (w > 0 && h > 0) {
+                    cropParams.lockedSize = { width: w, height: h, unit: unit, dpi: DPI };
+                     cropParams.aspectRatio = w / h;
+                     aspectRatioSelect.value = 'free';
+                     customRatioInputs.classList.add('hidden');
+                } else {
+                    cropParams.lockedSize = null;
+                    cropParams.aspectRatio = null;
+                }
+                if (imageLoaded) resetCropBox();
+            }
+        }
+
+        swapSizeBtn.addEventListener('click', () => {
+            [customSizeW.value, customSizeH.value] = [customSizeH.value, customSizeW.value];
+            updateCustomSize();
+        });
+
+        cropShapeSelect.addEventListener('change', (e) => {
+            cropParams.shape = e.target.value;
+             if (imageLoaded) {
+                 if (cropParams.shape === 'circle') {
+                     cropParams.aspectRatio = 1;
+                     if (Array.from(aspectRatioSelect.options).some(opt => opt.value === '1:1')) {
+                         aspectRatioSelect.value = '1:1';
+                     } else {
+                         aspectRatioSelect.value = 'free';
+                     }
+                      customRatioInputs.classList.add('hidden');
+                      cropParams.lockedSize = null;
+                      cropSizePresetSelect.value = 'auto';
+                      customSizeInputs.classList.add('hidden');
+                 }
+                 resetCropBox();
+             }
+        });
+
+        // --- Image Enhancement ---
+        function applyCanvasFilters() {
+            if (!sourceCtx) return;
+            const filterString = `brightness(${filters.brightness}%) contrast(${filters.contrast}%) saturate(${filters.saturation}%) hue-rotate(${filters.hue}deg)`;
+            sourceCtx.filter = filterString;
+        }
+
+        function updateFilterValue(type, value) {
+            filters[type] = value;
+            document.getElementById(`${type}-value`).textContent = `${value}${(type === 'hue' ? '°' : '%')}`;
+            if (imageLoaded) redrawSourceCanvas();
+        }
+
+        brightnessSlider.addEventListener('input', (e) => updateFilterValue('brightness', e.target.value));
+        contrastSlider.addEventListener('input', (e) => updateFilterValue('contrast', e.target.value));
+        saturationSlider.addEventListener('input', (e) => updateFilterValue('saturation', e.target.value));
+        hueSlider.addEventListener('input', (e) => updateFilterValue('hue', e.target.value));
+
+        function resetFilters(redraw = true) {
+            filters = { brightness: 100, contrast: 100, saturation: 100, hue: 0 };
+            brightnessSlider.value = 100; contrastSlider.value = 100;
+            saturationSlider.value = 100; hueSlider.value = 0;
+            brightnessValue.textContent = '100%'; contrastValue.textContent = '100%';
+            saturationValue.textContent = '100%'; hueValue.textContent = '0°';
+             if (sourceCtx) {
+                sourceCtx.filter = 'none';
+            }
+             if (redraw && imageLoaded) redrawSourceCanvas();
+        }
+        resetFiltersBtn.addEventListener('click', () => resetFilters());
+
+
+        // --- Shape Path Creation ---
+        function createShapePath(shape, width, height) {
+             const path = new Path2D();
+             const w = width; const h = height;
+             const cx = w / 2; const cy = h / 2;
+
+             if (shape === 'heart') {
+                 const topCurveHeight = h * 0.3; const bottomTipY = h;
+                 const topPointY = topCurveHeight; const halfWidth = w / 2;
+                 path.moveTo(cx, topPointY);
+                 path.bezierCurveTo(cx, topPointY - topCurveHeight / 1.5, cx - halfWidth / 1.2, topPointY - topCurveHeight / 1.5, cx - halfWidth, topPointY);
+                 path.bezierCurveTo(cx - halfWidth * 1.1, cy + topCurveHeight * 0.5, cx, h * 0.9, cx, bottomTipY);
+                 path.bezierCurveTo(cx, h * 0.9, cx + halfWidth * 1.1, cy + topCurveHeight * 0.5, cx + halfWidth, topPointY);
+                 path.bezierCurveTo(cx + halfWidth / 1.2, topPointY - topCurveHeight / 1.5, cx, topPointY - topCurveHeight / 1.5, cx, topPointY);
+                 path.closePath();
+             } else if (shape === 'star') {
+                 const outerRadius = Math.min(w, h) / 2; const innerRadius = outerRadius * 0.4;
+                 const numPoints = 5; const angleStep = Math.PI / numPoints;
+                 let currentAngle = -Math.PI / 2;
+                 path.moveTo(cx + outerRadius * Math.cos(currentAngle), cy + outerRadius * Math.sin(currentAngle));
+                 for (let i = 0; i < numPoints; i++) {
+                     currentAngle += angleStep;
+                     path.lineTo(cx + innerRadius * Math.cos(currentAngle), cy + innerRadius * Math.sin(currentAngle));
+                     currentAngle += angleStep;
+                     path.lineTo(cx + outerRadius * Math.cos(currentAngle), cy + outerRadius * Math.sin(currentAngle));
+                 }
+                 path.closePath();
+             }
+             return path;
+         }
+
+        // --- Crop Execution ---
+        cropBtn.addEventListener('click', () => {
+            if (!imageLoaded || !cropBox) {
+                 showMessage('請先載入圖片並選擇範圍', 'error');
+                 return;
+            }
+
+            // Calculate Source Region from Original Image
+             const { sx: view_sx, sy: view_sy, sWidth: view_sWidth, sHeight: view_sHeight } = calculateSourceViewRect();
+             if(view_sWidth <=0 || view_sHeight <= 0) {
+                 showMessage('無法計算裁切來源區域', 'error');
+                 console.error("Invalid source view rect:", {view_sx, view_sy, view_sWidth, view_sHeight});
+                 return;
+             }
+             const crop_sx = view_sx + cropParams.x * view_sWidth;
+             const crop_sy = view_sy + cropParams.y * view_sHeight;
+             const crop_sWidth = cropParams.width * view_sWidth;
+             const crop_sHeight = cropParams.height * view_sHeight;
+
+             if (crop_sWidth <= 0 || crop_sHeight <= 0 || isNaN(crop_sx) || isNaN(crop_sy)) {
+                 showMessage('無效的裁切範圍計算', 'error');
+                 console.error("Invalid crop calculation:", {crop_sx, crop_sy, crop_sWidth, crop_sHeight, view_sx, view_sy, view_sWidth, view_sHeight, cropParams});
+                 return;
+             }
+
+            // Determine Output Dimensions
+            let outputWidth, outputHeight;
+            if (cropParams.lockedSize) {
+                outputWidth = convertToPx(cropParams.lockedSize.width, cropParams.lockedSize.unit);
+                outputHeight = convertToPx(cropParams.lockedSize.height, cropParams.lockedSize.unit);
+            } else {
+                outputWidth = Math.round(crop_sWidth);
+                outputHeight = Math.round(crop_sHeight);
+            }
+
+             if (outputWidth <= 0 || outputHeight <= 0 || isNaN(outputWidth) || isNaN(outputHeight)) {
+                 showMessage('計算出的輸出尺寸無效', 'error');
+                 console.error("Invalid output dimensions:", {outputWidth, outputHeight});
+                 return;
+             }
+
+             // Prepare Preview Canvas
+              const previewContainer = previewCanvas.parentElement;
+              const previewContainerMaxWidth = previewContainer.clientWidth - parseInt(getComputedStyle(previewContainer).paddingLeft) - parseInt(getComputedStyle(previewContainer).paddingRight);
+             const outputRatio = outputWidth / outputHeight;
+             let previewDisplayWidth = outputWidth;
+             let previewDisplayHeight = outputHeight;
+
+             if (previewDisplayWidth > previewContainerMaxWidth) {
+                 previewDisplayWidth = previewContainerMaxWidth;
+                 previewDisplayHeight = previewDisplayWidth / outputRatio;
+             }
+             const maxPreviewHeight = 400;
+             if (previewDisplayHeight > maxPreviewHeight) {
+                 previewDisplayHeight = maxPreviewHeight;
+                 previewDisplayWidth = previewDisplayHeight * outputRatio;
+             }
+
+             previewCanvas.width = outputWidth;
+             previewCanvas.height = outputHeight;
+             previewCanvas.style.width = `${previewDisplayWidth}px`;
+             previewCanvas.style.height = `${previewDisplayHeight}px`;
+
+            // Draw Cropped Image to Preview
+            previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+            previewCtx.save();
+
+            // Apply shape clipping if needed
+             const shape = cropParams.shape;
+             if (shape !== 'rectangle') {
+                  let clipPath;
+                  if (shape === 'circle') {
+                      clipPath = new Path2D();
+                      clipPath.ellipse(outputWidth / 2, outputHeight / 2, outputWidth / 2, outputHeight / 2, 0, 0, Math.PI * 2);
+                  } else if (shape === 'heart' || shape === 'star') {
+                      clipPath = createShapePath(shape, outputWidth, outputHeight);
+                  }
+                  if (clipPath) {
+                       try {
+                           previewCtx.clip(clipPath);
+                       } catch (e) {
+                           console.error("Error applying clip path:", e);
+                           showMessage('無法應用裁切形狀', 'error');
+                           previewCtx.restore();
+                           return;
+                       }
+                   }
+             }
+
+            // Use temporary canvas to apply filters correctly
+             const tempCanvas = document.createElement('canvas');
+             tempCanvas.width = outputWidth;
+             tempCanvas.height = outputHeight;
+             const tempCtx = tempCanvas.getContext('2d');
+
+             const filterString = `brightness(${filters.brightness}%) contrast(${filters.contrast}%) saturate(${filters.saturation}%) hue-rotate(${filters.hue}deg)`;
+             tempCtx.filter = filterString;
+
+             try {
+                 tempCtx.drawImage(
+                     image,
+                     crop_sx, crop_sy, crop_sWidth, crop_sHeight,
+                     0, 0, outputWidth, outputHeight
+                 );
+             } catch (e) {
+                 console.error("Error drawing to temp canvas:", e);
+                 showMessage('繪製裁切圖片時發生錯誤', 'error');
+                 previewCtx.restore();
+                 return;
+             }
+             tempCtx.filter = 'none';
+
+             previewCtx.drawImage(tempCanvas, 0, 0);
+            previewCtx.restore();
+
+            cropInfo.textContent = `寬: ${outputWidth} px, 高: ${outputHeight} px`;
+            showMessage('裁切完成，請預覽結果', 'success');
+            enableControls();
+        });
+
+
+        // --- Download Logic ---
+        downloadBtn.addEventListener('click', () => {
+            if (!previewCanvas || previewCanvas.width === 0 || previewCanvas.height === 0) {
+                showMessage('沒有可下載的裁切結果', 'error');
+                return;
+            }
+
+            const format = fileFormatSelect.value;
+            let fileName = fileNameInput.value.trim() || 'cropped_image';
+             const requiredExtension = format.split('/')[1].replace('+xml', '');
+             const currentExtension = fileName.includes('.') ? fileName.split('.').pop().toLowerCase() : '';
+
+             if (currentExtension !== requiredExtension) {
+                  if (fileName.includes('.')) {
+                      fileName = fileName.substring(0, fileName.lastIndexOf('.'));
+                  }
+                 fileName += `.${requiredExtension}`;
+             }
+
+            const needsBackgroundFill = (format === 'image/jpeg' || format === 'image/gif') && cropParams.shape !== 'rectangle';
+            let canvasToExport = previewCanvas;
+
+             if (needsBackgroundFill) {
+                 const fillCanvas = document.createElement('canvas');
+                 fillCanvas.width = previewCanvas.width;
+                 fillCanvas.height = previewCanvas.height;
+                 const fillCtx = fillCanvas.getContext('2d');
+                 fillCtx.fillStyle = '#FFFFFF';
+                 fillCtx.fillRect(0, 0, fillCanvas.width, fillCanvas.height);
+                 fillCtx.drawImage(previewCanvas, 0, 0);
+                 canvasToExport = fillCanvas;
+             }
+
+             let dataUrl;
+            try {
+                if (format === 'image/svg+xml') {
+                     const svgWidth = canvasToExport.width;
+                     const svgHeight = canvasToExport.height;
+                     const pngDataUrl = canvasToExport.toDataURL('image/png');
+                      if (!pngDataUrl || pngDataUrl === 'data:,') { throw new Error('Failed to generate PNG data for SVG.'); }
+
+                     let svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}">`;
+                     svgContent += `<image href="${pngDataUrl}" x="0" y="0" width="${svgWidth}" height="${svgHeight}"/>`;
+                     svgContent += `</svg>`;
+                     dataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgContent)}`;
+
+                } else {
+                     const quality = format === 'image/jpeg' ? 0.92 : undefined;
+                     dataUrl = canvasToExport.toDataURL(format, quality);
+                     if (!dataUrl || dataUrl === 'data:,') { throw new Error(`Failed to generate ${format} data.`); }
+                }
+
+                const link = document.createElement('a');
+                link.href = dataUrl;
+                link.download = fileName;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                showMessage('圖片已開始下載', 'success');
+
+            } catch (error) {
+                 console.error("Download error:", error);
+                 showMessage(`下載失敗: ${error.message}`, 'error');
+             }
+        });
+
+
+        // --- Initialization ---
+        disableControls();
+        brightnessValue.textContent = '100%'; contrastValue.textContent = '100%';
+        saturationValue.textContent = '100%'; hueValue.textContent = '0°';
+        cropInfo.textContent = `寬: - px, 高: - px`;
+        imageInfo.textContent = `原始圖片: -`;
+        cropDimensions.textContent = `裁切範圍 (原始像素): 寬: - px, 高: - px / 寬: - cm, 高: - cm (@${DPI} DPI)`;
+
+    </script>
+</body>
+</html>
