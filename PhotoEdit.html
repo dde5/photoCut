@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>進階圖片工具 (v17 - 終極穩定版)</title>
+    <!-- 引入 Fabric.js 函式庫 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+    <!-- 引入 Font Awesome 圖示庫 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <style>
+        :root {
+            --primary-color: #007bff;
+            --secondary-color: #6c757d;
+            --danger-color: #dc3545;
+            --success-color: #28a745;
+            --warning-color: #ffc107;
+            --light-gray: #f8f9fa;
+            --medium-gray: #e9ecef;
+            --border-color: #dee2e6;
+            --text-color: #343a40;
+            --white-color: #fff;
+            --icon-color: #495057;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            margin: 0;
+            background-color: var(--light-gray);
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+            color: var(--text-color);
+        }
+        .container {
+            display: flex;
+            width: 100%;
+            height: 100%;
+        }
+        .controls {
+            width: 320px;
+            min-width: 320px;
+            background-color: var(--white-color);
+            padding: 10px;
+            overflow-y: auto;
+            border-right: 1px solid var(--border-color);
+            height: 100vh;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .canvas-wrapper {
+            flex-grow: 1;
+            display: flex;
+            padding: 20px;
+            position: relative;
+            background-color: var(--medium-gray);
+            background-image: linear-gradient(45deg, #f0f0f0 25%, transparent 25%), linear-gradient(-45deg, #f0f0f0 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #f0f0f0 75%), linear-gradient(-45deg, transparent 75%, #f0f0f0 75%);
+            background-size: 20px 20px;
+            overflow: auto; 
+            box-sizing: border-box;
+        }
+        #editor-canvas {
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            border: 1px solid var(--secondary-color);
+        }
+        
+        /* Accordion Styles */
+        .accordion-item {
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            background-color: var(--white-color);
+        }
+        .accordion-header {
+            background-color: var(--light-gray);
+            padding: 12px 15px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: 600;
+            color: var(--primary-color);
+            border-bottom: 1px solid var(--border-color);
+            transition: background-color 0.2s;
+        }
+        .accordion-header:hover {
+            background-color: #e2e6ea;
+        }
+        .accordion-header .fa-chevron-down {
+            transition: transform 0.3s ease;
+        }
+        .accordion-header.active .fa-chevron-down {
+            transform: rotate(180deg);
+        }
+        .accordion-content {
+            max-height: 0;
+            overflow: hidden;
+            padding: 0 15px;
+            transition: max-height 0.4s ease-out, padding 0.4s ease-out;
+        }
+        .accordion-content.show {
+            max-height: 1000px;
+            padding: 15px;
+        }
+        .control-group { margin-bottom: 20px; }
+        .control-group:last-child { margin-bottom: 0; }
+        .control-group.hidden { display: none; }
+
+        p, label {
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: var(--text-color);
+            display: block;
+        }
+        input[type="text"], input[type="number"], select {
+            width: 100%; padding: 8px 12px; margin-bottom: 10px;
+            border-radius: 4px; border: 1px solid var(--border-color);
+            box-sizing: border-box; transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        input[type="text"]:focus, input[type="number"]:focus, select:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+            outline: none;
+        }
+        input[type="color"] {
+             width: 100%; height: 38px; padding: 0; border: none;
+             background: none; cursor: pointer;
+        }
+        input[type="range"] { width: 100%; }
+        
+        /* Button Styles */
+        button, .button-like {
+            background-color: var(--primary-color); color: white; border: none;
+            padding: 10px 15px; border-radius: 4px; cursor: pointer;
+            width: 100%; text-align: center; margin-bottom: 5px;
+            transition: background-color 0.2s, opacity 0.2s, box-shadow 0.2s;
+            text-decoration: none; display: flex; align-items: center; justify-content: center;
+            gap: 8px; font-weight: 500; box-sizing: border-box;
+        }
+        button:hover, .button-like:hover { background-color: #0069d9; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        button.active { background-color: #0056b3; box-shadow: inset 0 2px 4px rgba(0,0,0,0.2); }
+        button:disabled { background-color: var(--secondary-color); opacity: 0.65; cursor: not-allowed; box-shadow: none; }
+        .button-secondary { background-color: var(--secondary-color); }
+        .button-secondary:hover:not(:disabled) { background-color: #5a6268; }
+        .button-danger { background-color: var(--danger-color); }
+        .button-danger:hover { background-color: #c82333; }
+        .button-success { background-color: var(--success-color); }
+        .button-success:hover { background-color: #218838; }
+        .icon-button { background-color: transparent; color: var(--icon-color); border: 1px solid var(--border-color); }
+        .icon-button:hover:not(:disabled) { background-color: var(--light-gray); color: var(--primary-color); }
+        .icon-button.active { background-color: #e2e6ea; color: var(--primary-color); border-color: var(--primary-color); box-shadow: none; }
+
+
+        .input-group { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+        
+        #drop-zone {
+            border: 2px dashed var(--secondary-color); color: var(--secondary-color);
+            display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center;
+            height: 100%; width: 100%; transition: background-color 0.3s, border-color 0.3s;
+        }
+        #drop-zone i { font-size: 48px; margin-bottom: 15px; }
+        #drop-zone.dragover { border-color: var(--primary-color); background-color: rgba(0, 123, 255, 0.1); }
+        
+        #loader {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255, 255, 255, 0.85); display: none;
+            justify-content: center; align-items: center; z-index: 1000;
+            font-size: 1.5em; color: #333;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3; border-top: 4px solid var(--primary-color);
+            border-radius: 50%; width: 40px; height: 40px;
+            animation: spin 1s linear infinite; margin-right: 15px;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        input[type="file"] { display: none; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div class="controls">
+            <!-- Section 1: File & View -->
+            <div class="accordion-item">
+                <div class="accordion-header active">
+                    <span><i class="fa-solid fa-file-image"></i> 檔案與視圖</span>
+                    <i class="fa-solid fa-chevron-down"></i>
+                </div>
+                <div class="accordion-content show">
+                    <div class="control-group">
+                        <label for="image-upload" class="button-like"><i class="fa-solid fa-upload"></i> 載入主要圖片</label>
+                        <input type="file" id="image-upload" accept="image/*">
+                        <p style="font-size: 0.8em; color: #666; text-align: center;">或將圖片拖曳到右側畫布。</p>
+                    </div>
+                    <div class="control-group">
+                        <p>編輯歷史</p>
+                        <div class="input-group">
+                            <button id="undo-btn" disabled><i class="fa-solid fa-rotate-left"></i>上一步</button>
+                            <button id="redo-btn" disabled><i class="fa-solid fa-rotate-right"></i>下一步</button>
+                        </div>
+                    </div>
+                    <div class="control-group">
+                        <p>視圖控制</p>
+                        <p style="font-size: 0.8em; color: #666;">滾輪縮放，Alt / 中鍵拖曳平移。</p>
+                        <div class="input-group">
+                            <button id="zoom-in-btn"><i class="fa-solid fa-magnifying-glass-plus"></i>放大</button>
+                            <button id="zoom-out-btn"><i class="fa-solid fa-magnifying-glass-minus"></i>縮小</button>
+                        </div>
+                        <button id="fit-to-view-btn"><i class="fa-solid fa-expand"></i>適應視窗</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section: Image Transform -->
+            <div class="accordion-item">
+                <div class="accordion-header">
+                    <span><i class="fa-solid fa-crop-simple"></i> 圖片變形</span>
+                    <i class="fa-solid fa-chevron-down"></i>
+                </div>
+                <div class="accordion-content">
+                    <div id="transform-controls">
+                        <div class="control-group">
+                            <p>圖片縮放</p>
+                            <div class="input-group">
+                                <input type="range" id="scale-slider" min="10" max="200" value="100" step="1">
+                                <input type="number" id="scale-input" value="100" min="10" max="200" style="width: 80px;">
+                                <span>%</span>
+                            </div>
+                            <div class="input-group">
+                                <button id="apply-scale-btn" class="button-success"><i class="fa-solid fa-check"></i> 套用縮放</button>
+                                <button id="reset-scale-btn" class="button-secondary"><i class="fa-solid fa-times"></i> 重設</button>
+                            </div>
+                        </div>
+                        <div class="control-group">
+                            <p>自由裁切</p>
+                            <button id="start-crop-btn"><i class="fa-solid fa-crop"></i> 開始裁切</button>
+                        </div>
+                    </div>
+                    <div id="cropping-controls" class="hidden">
+                         <div class="control-group">
+                            <p>正在裁切...</p>
+                            <button id="apply-crop-btn" class="button-success"><i class="fa-solid fa-check"></i> 套用裁切</button>
+                            <button id="cancel-crop-btn" class="button-danger"><i class="fa-solid fa-times"></i> 取消裁切</button>
+                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section: Core Features -->
+            <div class="accordion-item">
+                <div class="accordion-header">
+                    <span><i class="fa-solid fa-wand-magic-sparkles"></i> 拼接與裁線</span>
+                    <i class="fa-solid fa-chevron-down"></i>
+                </div>
+                <div class="accordion-content">
+                    <div class="control-group">
+                        <p>智慧拼接</p>
+                        <label for="stitch-images-upload" class="button-like button-secondary"><i class="fa-solid fa-images"></i> 選擇拼接圖片 (可多選)</label>
+                        <input type="file" id="stitch-images-upload" accept="image/*" multiple>
+                        <div class="input-group">
+                            <button id="stitch-v"><i class="fa-solid fa-arrows-up-down"></i>垂直拼接</button>
+                            <button id="stitch-h"><i class="fa-solid fa-arrows-left-right"></i>水平拼接</button>
+                        </div>
+                    </div>
+                    <div class="control-group">
+                        <p>可視化裁線</p>
+                        <div class="input-group">
+                            <button id="add-h-slice-btn" class="button-secondary"><i class="fa-solid fa-ruler-horizontal"></i>水平線</button>
+                            <button id="add-v-slice-btn" class="button-secondary"><i class="fa-solid fa-ruler-vertical"></i>垂直線</button>
+                        </div>
+                        <button id="exec-slice-btn" class="button-success"><i class="fa-solid fa-scissors"></i>執行裁線拼接</button>
+                        <button id="clear-slice-lines-btn" class="button-danger"><i class="fa-solid fa-times"></i>清除裁線</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section: Object Editing -->
+            <div class="accordion-item">
+                <div class="accordion-header">
+                    <span><i class="fa-solid fa-pen-ruler"></i> 物件編輯</span>
+                    <i class="fa-solid fa-chevron-down"></i>
+                </div>
+                <div class="accordion-content">
+                     <div class="control-group">
+                        <p>新增文字</p>
+                        <input type="text" id="text-input" placeholder="在此輸入文字">
+                        <button id="add-text-btn" style="margin-top: -5px; margin-bottom: 15px;"><i class="fa-solid fa-plus"></i> 新增文字到畫布</button>
+                        <div id="text-controls" style="display: none; border-top: 1px dashed var(--border-color); margin-top: 15px; padding-top: 15px;">
+                            <p>文字樣式 (需選取文字)</p>
+                            <label for="font-family">字體:</label>
+                            <select id="font-family">
+                                <option value="Arial">Arial</option>
+                                <option value="Microsoft JhengHei">微軟正黑體</option>
+                                <option value="PMingLiU">新細明體</option>
+                                <option value="DFKai-sb">標楷體</option>
+                                <option value="Courier New">Courier New</option>
+                            </select>
+                            <div class="input-group">
+                               <label for="text-color" class="button-like icon-button" style="width: auto; padding: 0 5px; flex-grow: 1;">
+                                   <input type="color" id="text-color" value="#000000">
+                                   <span style="margin: 0 10px;">顏色</span>
+                                </label>
+                                <button id="font-bold-btn" class="icon-button" title="粗體"><i class="fa-solid fa-bold"></i></button>
+                                <button id="font-italic-btn" class="icon-button" title="斜體"><i class="fa-solid fa-italic"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="control-group">
+                        <p>新增貼圖</p>
+                        <label for="sticker-upload" class="button-like button-secondary"><i class="fa-regular fa-face-smile"></i> 選擇貼圖檔案</label>
+                        <input type="file" id="sticker-upload" accept="image/*">
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Section: Export & Clear -->
+            <div class="accordion-item">
+                <div class="accordion-header">
+                   <span><i class="fa-solid fa-floppy-disk"></i> 匯出與清空</span>
+                   <i class="fa-solid fa-chevron-down"></i>
+                </div>
+                <div class="accordion-content">
+                    <div class="control-group">
+                        <a id="download-link" class="button-like button-success" download="processed-image.png"><i class="fa-solid fa-download"></i>下載圖片</a>
+                    </div>
+                    <div class="control-group">
+                        <button id="delete-selected-btn" class="button-danger"><i class="fa-solid fa-trash-can"></i>刪除選取物件</button>
+                        <button id="clear-all-btn" class="button-danger"><i class="fa-solid fa-trash"></i>全部清除</button>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <div class="canvas-wrapper" id="canvas-container">
+            <div id="drop-zone">
+                <i class="fa-solid fa-cloud-arrow-up"></i>
+                <p>將圖片拖曳至此處</p>
+            </div>
+            <canvas id="editor-canvas"></canvas>
+            <div id="loader"><div class="spinner"></div>處理中...</div>
+        </div>
+    </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    // --- Canvas and controls setup ---
+    const canvas = new fabric.Canvas('editor-canvas', { backgroundColor: null, width: 0, height: 0, preserveObjectStacking: true });
+    const canvasContainer = document.getElementById('canvas-container');
+    const loader = document.getElementById('loader');
+    const dropZone = document.getElementById('drop-zone');
+    
+    // --- UI Elements ---
+    const allUIElements = {
+        imageUpload: document.getElementById('image-upload'),
+        stitchImagesUpload: document.getElementById('stitch-images-upload'),
+        stickerUpload: document.getElementById('sticker-upload'),
+        downloadLink: document.getElementById('download-link'),
+        undoBtn: document.getElementById('undo-btn'),
+        redoBtn: document.getElementById('redo-btn'),
+        textControls: document.getElementById('text-controls'),
+        textColorInput: document.getElementById('text-color'),
+        fontFamilySelect: document.getElementById('font-family'),
+        fontBoldBtn: document.getElementById('font-bold-btn'),
+        fontItalicBtn: document.getElementById('font-italic-btn'),
+        transformControls: document.getElementById('transform-controls'),
+        croppingControls: document.getElementById('cropping-controls'),
+        scaleSlider: document.getElementById('scale-slider'),
+        scaleInput: document.getElementById('scale-input')
+    };
+
+    // --- State variables ---
+    let mainImage = null;
+    let sliceLine1 = null, sliceLine2 = null, sliceDirection = null;
+    let history = [];
+    let historyIndex = -1;
+    let historyLock = false;
+    let isPanning = false;
+    let lastPanPoint = { x: 0, y: 0 };
+    let isCropping = false;
+    let cropRect = null;
+
+    // --- UI Logic (Accordion) ---
+    document.querySelectorAll('.accordion-header').forEach(header => {
+        header.addEventListener('click', () => {
+            const isActive = header.classList.contains('active');
+            document.querySelectorAll('.accordion-content.show').forEach(openContent => {
+                if (openContent !== header.nextElementSibling) {
+                    openContent.classList.remove('show');
+                    openContent.previousElementSibling.classList.remove('active');
+                }
+            });
+            if (!isActive) {
+                header.classList.add('active');
+                header.nextElementSibling.classList.add('show');
+            }
+        });
+    });
+
+    const showLoader = () => loader.style.display = 'flex';
+    const hideLoader = () => loader.style.display = 'none';
+    const updateCanvasSize = (width, height) => { canvas.setWidth(width); canvas.setHeight(height); };
+    const clearSliceLines = () => { if (sliceLine1) canvas.remove(sliceLine1); if (sliceLine2) canvas.remove(sliceLine2); sliceLine1 = sliceLine2 = sliceDirection = null; canvas.renderAll(); };
+
+    // --- History (Undo/Redo) [STABLE VERSION] ---
+    const saveState = () => {
+        if (historyLock || isCropping) return;
+        history = history.slice(0, historyIndex + 1);
+        const state = canvas.toJSON(['selectable', 'evented', 'excludeFromExport']);
+        history.push(state);
+        historyIndex = history.length - 1;
+        updateHistoryButtons();
+    };
+    const loadStateFromHistory = (index) => {
+        if (!history[index]) return;
+        historyLock = true;
+        showLoader();
+        canvas.clear(); // Clear canvas before loading
+        canvas.loadFromJSON(history[index], () => {
+            mainImage = canvas.backgroundImage instanceof fabric.Image ? canvas.backgroundImage : null;
+            if (mainImage) {
+                updateCanvasSize(mainImage.width, mainImage.height);
+                fitToView();
+            } else {
+                updateCanvasSize(0, 0);
+                dropZone.style.display = 'flex';
+            }
+            canvas.renderAll();
+            historyLock = false;
+            hideLoader();
+        });
+    };
+    const updateHistoryButtons = () => {
+        allUIElements.undoBtn.disabled = historyIndex <= 0;
+        allUIElements.redoBtn.disabled = historyIndex >= history.length - 1;
+    };
+    allUIElements.undoBtn.addEventListener('click', () => { if (historyIndex > 0) { historyIndex--; loadStateFromHistory(historyIndex); updateHistoryButtons();} });
+    allUIElements.redoBtn.addEventListener('click', () => { if (historyIndex < history.length - 1) { historyIndex++; loadStateFromHistory(historyIndex); updateHistoryButtons(); } });
+
+    const resetCanvas = (clearHistory = false) => {
+        clearSliceLines();
+        canvas.clear();
+        mainImage = null;
+        updateCanvasSize(0, 0);
+        canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
+        dropZone.style.display = 'flex';
+        canvas.setBackgroundImage(null, canvas.renderAll.bind(canvas));
+        if (clearHistory) { history = []; historyIndex = -1; updateHistoryButtons(); }
+    };
+
+    const fitToView = () => {
+        if (!mainImage) return;
+        const wrapperWidth = canvasContainer.clientWidth;
+        const wrapperHeight = canvasContainer.clientHeight;
+        const padding = 20;
+        const availableWidth = wrapperWidth - (padding * 2);
+        const availableHeight = wrapperHeight - (padding * 2);
+        const imageAspectRatio = mainImage.getScaledWidth() / mainImage.getScaledHeight();
+        const availableAspectRatio = availableWidth / availableHeight;
+        let newZoom = (imageAspectRatio > availableAspectRatio) ? (availableWidth / mainImage.getScaledWidth()) : (availableHeight / mainImage.getScaledHeight());
+        const newVptX = padding;
+        const newVptY = (wrapperHeight - mainImage.getScaledHeight() * newZoom) / 2;
+        canvas.setViewportTransform([newZoom, 0, 0, newZoom, newVptX, newVptY]);
+        canvas.renderAll();
+    };
+
+    const updateCanvasWithImage = (url, isInitialLoad = false) => {
+        historyLock = true;
+        showLoader();
+        fabric.Image.fromURL(url, (img) => {
+            resetCanvas(isInitialLoad);
+            dropZone.style.display = 'none';
+            mainImage = img;
+            updateCanvasSize(img.width, img.height);
+            canvas.setBackgroundImage(img, () => {
+                fitToView();
+                historyLock = false;
+                saveState(); // Save the initial state
+                hideLoader();
+            }, { originX: 'left', originY: 'top' });
+        }, { crossOrigin: 'anonymous' });
+    };
+
+    const handleFile = (file) => { if (file && file.type.startsWith('image/')) { const reader = new FileReader(); reader.onload = (e) => updateCanvasWithImage(e.target.result, true); reader.readAsDataURL(file); } };
+    const filesToImageElements = (files) => Promise.all(Array.from(files).map(file => new Promise((resolve, reject) => { if (!file.type.startsWith('image/')) return resolve(null); const reader = new FileReader(); reader.onload = (e) => { const img = new Image(); img.onload = () => resolve(img); img.onerror = reject; img.src = e.target.result; }; reader.readAsDataURL(file); }))).then(images => images.filter(img => img !== null));
+
+    // --- View Controls & Core Listeners ---
+    document.getElementById('fit-to-view-btn').addEventListener('click', () => { fitToView(); });
+    document.getElementById('zoom-in-btn').addEventListener('click', () => { canvas.zoomToPoint(new fabric.Point(canvas.width / 2, canvas.height / 2), canvas.getZoom() * 1.2); });
+    document.getElementById('zoom-out-btn').addEventListener('click', () => { canvas.zoomToPoint(new fabric.Point(canvas.width / 2, canvas.height / 2), canvas.getZoom() / 1.2); });
+    canvas.on('mouse:wheel', function(opt) { opt.e.preventDefault(); opt.e.stopPropagation(); let zoom = canvas.getZoom() * (0.999 ** opt.e.deltaY); zoom = Math.max(0.01, Math.min(zoom, 20)); canvas.zoomToPoint({ x: opt.e.offsetX, y: opt.e.offsetY }, zoom); });
+    canvas.on('mouse:down', function(opt) { const evt = opt.e; if (evt.altKey || evt.button === 1) { isPanning = true; canvas.selection = false; lastPanPoint = { x: evt.clientX, y: evt.clientY }; this.setCursor('grabbing'); evt.preventDefault(); } });
+    canvas.on('mouse:move', function(opt) { if (isPanning) { const e = opt.e, vpt = this.viewportTransform; vpt[4] += e.clientX - lastPanPoint.x; vpt[5] += e.clientY - lastPanPoint.y; this.requestRenderAll(); lastPanPoint = { x: e.clientX, y: e.clientY }; } });
+    canvas.on('mouse:up', function() { if (isPanning) { this.setViewportTransform(this.viewportTransform); isPanning = false; canvas.selection = true; this.setCursor('default'); } });
+    allUIElements.imageUpload.addEventListener('change', (e) => { if (e.target.files.length) handleFile(e.target.files[0]); e.target.value = ''; });
+    canvasContainer.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+    canvasContainer.addEventListener('dragleave', (e) => { e.preventDefault(); dropZone.classList.remove('dragover'); });
+    canvasContainer.addEventListener('drop', (e) => { e.preventDefault(); dropZone.classList.remove('dragover'); if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]); });
+
+    // --- Image Transform - Scaling ---
+    const updateScaleControls = () => { if (!mainImage) return; const scaleValue = (mainImage.scaleX || 1) * 100; allUIElements.scaleSlider.value = scaleValue; allUIElements.scaleInput.value = Math.round(scaleValue); };
+    const handleScaleChange = (value) => { if (!mainImage) return; mainImage.scale(value / 100); fitToView(); };
+    allUIElements.scaleSlider.addEventListener('input', (e) => { allUIElements.scaleInput.value = e.target.value; handleScaleChange(parseInt(e.target.value, 10)); });
+    allUIElements.scaleInput.addEventListener('input', (e) => { let value = parseInt(e.target.value, 10) || 100; value = Math.max(10, Math.min(value, 200)); allUIElements.scaleSlider.value = value; handleScaleChange(value); });
+    document.getElementById('reset-scale-btn').addEventListener('click', () => { if (!mainImage) return; mainImage.scale(1); updateScaleControls(); fitToView(); });
+    document.getElementById('apply-scale-btn').addEventListener('click', () => { if (!mainImage) return; const dataURL = mainImage.toDataURL({ format: 'png', quality: 1.0 }); updateCanvasWithImage(dataURL, true); });
+
+    // --- Image Transform - Cropping [STABLE VERSION] ---
+    const toggleCropMode = (enable) => { isCropping = enable; allUIElements.transformControls.classList.toggle('hidden', enable); allUIElements.croppingControls.classList.toggle('hidden', !enable); canvas.selection = !enable; canvas.getObjects().forEach(obj => obj.set('selectable', !enable)); };
+    document.getElementById('start-crop-btn').addEventListener('click', () => {
+        if (!mainImage) return;
+        toggleCropMode(true);
+        const imgRect = mainImage.getBoundingRect();
+        cropRect = new fabric.Rect({
+            left: imgRect.left, top: imgRect.top, width: imgRect.width, height: imgRect.height,
+            fill: 'rgba(0,0,0,0.5)', stroke: 'white', strokeWidth: 2, strokeDashArray: [5, 5],
+            borderColor: '#007bff', cornerColor: 'white', cornerSize: 12, transparentCorners: false, hasRotatingPoint: false,
+        });
+        canvas.add(cropRect).setActiveObject(cropRect).renderAll();
+    });
+    document.getElementById('cancel-crop-btn').addEventListener('click', () => { toggleCropMode(false); if (cropRect) canvas.remove(cropRect); cropRect = null; });
+    document.getElementById('apply-crop-btn').addEventListener('click', () => {
+        if (!cropRect || !mainImage) return;
+        const dataURL = mainImage.toDataURL({
+            left: cropRect.left, top: cropRect.top,
+            width: cropRect.getScaledWidth(), height: cropRect.getScaledHeight()
+        });
+        toggleCropMode(false);
+        if (cropRect) canvas.remove(cropRect);
+        cropRect = null;
+        updateCanvasWithImage(dataURL, true);
+    });
+
+    // --- Stitching & Slicing [STABLE VERSION] ---
+    const handleStitch = async (direction) => {
+        if (allUIElements.stitchImagesUpload.files.length === 0 && !mainImage) return alert('請選擇要拼接的圖片！');
+        showLoader();
+        const otherImages = await filesToImageElements(allUIElements.stitchImagesUpload.files);
+        let allImages = [];
+        if (mainImage) { const mainImgEl = await new Promise(r => { const i = new Image(); i.onload = () => r(i); i.src = mainImage.getSrc(); }); allImages.push(mainImgEl); }
+        allImages = allImages.concat(otherImages);
+        if (allImages.length < 2) { alert('至少需要兩張圖片才能拼接。'); hideLoader(); return; }
+        let totalWidth = (direction === 'horizontal') ? allImages.reduce((sum, img) => sum + img.width, 0) : Math.max(...allImages.map(img => img.width));
+        let totalHeight = (direction === 'vertical') ? allImages.reduce((sum, img) => sum + img.height, 0) : Math.max(...allImages.map(img => img.height));
+        const tempCanvas = document.createElement('canvas'); tempCanvas.width = totalWidth; tempCanvas.height = totalHeight;
+        const ctx = tempCanvas.getContext('2d');
+        let currentX = 0, currentY = 0;
+        allImages.forEach(img => { ctx.drawImage(img, currentX, currentY); if (direction === 'vertical') currentY += img.height; else currentX += img.width; });
+        updateCanvasWithImage(tempCanvas.toDataURL(), true);
+        allUIElements.stitchImagesUpload.value = '';
+    };
+    document.getElementById('stitch-v').addEventListener('click', () => handleStitch('vertical'));
+    document.getElementById('stitch-h').addEventListener('click', () => handleStitch('horizontal'));
+    
+    const createSliceLines = (direction) => {
+        if (!mainImage) return alert('請先載入圖片！');
+        clearSliceLines();
+        sliceDirection = direction;
+        const lineProps = { stroke: 'rgba(220, 53, 69, 0.8)', strokeWidth: 2, selectable: true, hasControls: false, hasBorders: false, excludeFromExport: true, padding: 10 };
+        if (direction === 'horizontal') {
+            sliceLine1 = new fabric.Line([0, mainImage.height / 3, mainImage.width, mainImage.height / 3], { ...lineProps, lockMovementX: true });
+            sliceLine2 = new fabric.Line([0, mainImage.height * 2 / 3, mainImage.width, mainImage.height * 2 / 3], { ...lineProps, lockMovementX: true });
+        } else {
+            sliceLine1 = new fabric.Line([mainImage.width / 3, 0, mainImage.width / 3, mainImage.height], { ...lineProps, lockMovementY: true });
+            sliceLine2 = new fabric.Line([mainImage.width * 2 / 3, 0, mainImage.width * 2 / 3, mainImage.height], { ...lineProps, lockMovementY: true });
+        }
+        canvas.add(sliceLine1, sliceLine2).renderAll();
+    };
+    document.getElementById('add-h-slice-btn').addEventListener('click', () => createSliceLines('horizontal'));
+    document.getElementById('add-v-slice-btn').addEventListener('click', () => createSliceLines('vertical'));
+    document.getElementById('clear-slice-lines-btn').addEventListener('click', clearSliceLines);
+    document.getElementById('exec-slice-btn').addEventListener('click', async () => {
+        if (!sliceLine1 || !sliceLine2) return alert('請先新增裁切線！');
+        showLoader();
+        const baseImageElement = await new Promise(r => { const i = new Image(); i.onload = () => r(i); i.src = mainImage.getSrc(); });
+        const tempCanvas = document.createElement('canvas'); const ctx = tempCanvas.getContext('2d');
+        if (sliceDirection === 'horizontal') {
+            const y1 = Math.min(sliceLine1.top, sliceLine2.top); const y2 = Math.max(sliceLine1.top, sliceLine2.top);
+            const cutHeight = y2 - y1; const newH = baseImageElement.height - cutHeight;
+            if (newH <= 0) { alert('裁切區域過大！'); hideLoader(); return; }
+            tempCanvas.width = baseImageElement.width; tempCanvas.height = newH;
+            ctx.drawImage(baseImageElement, 0, 0, baseImageElement.width, y1, 0, 0, baseImageElement.width, y1);
+            ctx.drawImage(baseImageElement, 0, y2, baseImageElement.width, baseImageElement.height - y2, 0, y1, baseImageElement.width, baseImageElement.height - y2);
+        } else {
+            const x1 = Math.min(sliceLine1.left, sliceLine2.left); const x2 = Math.max(sliceLine1.left, sliceLine2.left);
+            const cutWidth = x2 - x1; const newW = baseImageElement.width - cutWidth;
+            if (newW <= 0) { alert('裁切區域過大！'); hideLoader(); return; }
+            tempCanvas.width = newW; tempCanvas.height = baseImageElement.height;
+            ctx.drawImage(baseImageElement, 0, 0, x1, baseImageElement.height, 0, 0, x1, baseImageElement.height);
+            ctx.drawImage(baseImageElement, x2, 0, baseImageElement.width - x2, baseImageElement.height, x1, 0, baseImageElement.width - x2, baseImageElement.height);
+        }
+        updateCanvasWithImage(tempCanvas.toDataURL(), true);
+    });
+
+    // --- Object Editing (Text, Sticker) & Other Actions [STABLE VERSION] ---
+    const getViewportCenter = () => {
+        const vpt = canvas.viewportTransform;
+        // Center of the visible canvas area
+        const viewCenterX = (canvasContainer.clientWidth / 2 - vpt[4]) / vpt[0];
+        const viewCenterY = (canvasContainer.clientHeight / 2 - vpt[5]) / vpt[0];
+        return new fabric.Point(viewCenterX, viewCenterY);
+    };
+
+    document.getElementById('add-text-btn').addEventListener('click', () => {
+        if (!mainImage) return alert('請先載入圖片！');
+        const text = document.getElementById('text-input').value || '雙擊編輯文字';
+        const center = getViewportCenter();
+        const textbox = new fabric.Textbox(text, { left: center.x, top: center.y, originX: 'center', originY: 'center', fontSize: 50, fill: allUIElements.textColorInput.value, fontFamily: allUIElements.fontFamilySelect.value });
+        canvas.add(textbox).setActiveObject(textbox).renderAll();
+        saveState();
+    });
+    allUIElements.stickerUpload.addEventListener('change', (e) => {
+        if (!mainImage) return alert('請先載入背景圖片！');
+        const file = e.target.files[0];
+        if (!file || !file.type.startsWith('image/')) return;
+        const reader = new FileReader();
+        reader.onload = (event) => fabric.Image.fromURL(event.target.result, (img) => {
+            const center = getViewportCenter();
+            img.set({ left: center.x, top: center.y, originX: 'center', originY: 'center' }).scaleToWidth(150);
+            canvas.add(img).setActiveObject(img).renderAll();
+            saveState();
+        });
+        reader.readAsDataURL(file); e.target.value = '';
+    });
+    
+    const updateTextControls = () => {
+        const activeObject = canvas.getActiveObject();
+        allUIElements.textControls.style.display = (activeObject && activeObject.isType('textbox')) ? 'block' : 'none';
+        if (allUIElements.textControls.style.display === 'block') {
+            allUIElements.textColorInput.value = activeObject.get('fill');
+            allUIElements.fontFamilySelect.value = activeObject.get('fontFamily');
+            allUIElements.fontBoldBtn.classList.toggle('active', activeObject.get('fontWeight') === 'bold');
+            allUIElements.fontItalicBtn.classList.toggle('active', activeObject.get('fontStyle') === 'italic');
+        }
+    };
+    canvas.on({ 'selection:created': updateTextControls, 'selection:updated': updateTextControls, 'selection:cleared': updateTextControls, 'object:modified': saveState });
+    allUIElements.textColorInput.addEventListener('input', (e) => { const obj = canvas.getActiveObject(); if (obj && obj.isType('textbox')) { obj.set('fill', e.target.value); canvas.renderAll(); } });
+    allUIElements.textColorInput.addEventListener('change', saveState);
+    allUIElements.fontFamilySelect.addEventListener('change', (e) => { const obj = canvas.getActiveObject(); if (obj && obj.isType('textbox')) { obj.set('fontFamily', e.target.value); canvas.renderAll(); saveState(); } });
+    allUIElements.fontBoldBtn.addEventListener('click', () => { const obj = canvas.getActiveObject(); if (obj && obj.isType('textbox')) { obj.set('fontWeight', obj.get('fontWeight') === 'bold' ? 'normal' : 'bold'); allUIElements.fontBoldBtn.classList.toggle('active'); canvas.renderAll(); saveState(); } });
+    allUIElements.fontItalicBtn.addEventListener('click', () => { const obj = canvas.getActiveObject(); if (obj && obj.isType('textbox')) { obj.set('fontStyle', obj.get('fontStyle') === 'italic' ? 'normal' : 'italic'); allUIElements.fontItalicBtn.classList.toggle('active'); canvas.renderAll(); saveState(); } });
+    
+    document.getElementById('delete-selected-btn').addEventListener('click', () => { canvas.getActiveObjects().forEach(obj => canvas.remove(obj)); canvas.discardActiveObject().renderAll(); saveState(); });
+    document.getElementById('clear-all-btn').addEventListener('click', () => { if (confirm('確定要清除所有內容嗎？此操作將清空歷史紀錄。')) { resetCanvas(true); } });
+    window.addEventListener('keydown', (e) => { if ((e.key === 'Delete' || e.key === 'Backspace') && canvas.getActiveObjects().length > 0) { e.preventDefault(); document.getElementById('delete-selected-btn').click(); } if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); allUIElements.undoBtn.click(); } if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'Z' && e.shiftKey))) { e.preventDefault(); allUIElements.redoBtn.click(); } });
+    allUIElements.downloadLink.addEventListener('click', (e) => { if (!mainImage) { e.preventDefault(); alert('畫布上沒有圖片可供下載！'); return; } const vpt = canvas.viewportTransform; canvas.setViewportTransform([1, 0, 0, 1, 0, 0]); allUIElements.downloadLink.href = canvas.toDataURL({ format: 'png', quality: 1.0, width: mainImage.width, height: mainImage.height }); canvas.setViewportTransform(vpt); canvas.renderAll(); });
+});
+</script>
+
+</body>
+</html>
