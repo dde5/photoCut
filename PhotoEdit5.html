@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>進階圖片工具 (v21 - 最終穩定版)</title>
+    <!-- 引入 Fabric.js 函式庫 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+    <!-- 引入 Font Awesome 圖示庫 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <style>
+        :root {
+            --primary-color: #007bff;
+            --secondary-color: #6c757d;
+            --danger-color: #dc3545;
+            --success-color: #28a745;
+            --warning-color: #ffc107;
+            --light-gray: #f8f9fa;
+            --medium-gray: #e9ecef;
+            --border-color: #dee2e6;
+            --text-color: #343a40;
+            --white-color: #fff;
+            --icon-color: #495057;
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; margin: 0; background-color: var(--light-gray); display: flex; height: 100vh; overflow: hidden; color: var(--text-color); }
+        .container { display: flex; width: 100%; height: 100%; }
+        .controls { width: 320px; min-width: 320px; background-color: var(--white-color); padding: 10px; overflow-y: auto; border-right: 1px solid var(--border-color); height: 100vh; box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; }
+        .canvas-wrapper { flex-grow: 1; display: flex; justify-content: center; align-items: center; padding: 20px; position: relative; background-color: var(--medium-gray); background-image: linear-gradient(45deg, #f0f0f0 25%, transparent 25%), linear-gradient(-45deg, #f0f0f0 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #f0f0f0 75%), linear-gradient(-45deg, transparent 75%, #f0f0f0 75%); background-size: 20px 20px; overflow: hidden; box-sizing: border-box; }
+        #editor-canvas { box-shadow: 0 4px 15px rgba(0,0,0,0.2); border: 1px solid var(--secondary-color); }
+        .accordion-item { border: 1px solid var(--border-color); border-radius: 6px; background-color: var(--white-color); }
+        .accordion-header { background-color: var(--light-gray); padding: 12px 15px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: 600; color: var(--primary-color); border-bottom: 1px solid var(--border-color); transition: background-color 0.2s; }
+        .accordion-header:hover { background-color: #e2e6ea; }
+        .accordion-header .fa-chevron-down { transition: transform 0.3s ease; }
+        .accordion-header.active .fa-chevron-down { transform: rotate(180deg); }
+        .accordion-content { max-height: 0; overflow: hidden; padding: 0 15px; transition: max-height 0.4s ease-out, padding 0.4s ease-out; }
+        .accordion-content.show { max-height: 1000px; padding: 15px; }
+        .control-group { margin-bottom: 20px; }
+        .control-group:last-child { margin-bottom: 0; }
+        .control-group.hidden { display: none; }
+        p, label { margin-bottom: 8px; font-weight: 500; color: var(--text-color); display: block; }
+        input[type="text"], input[type="number"], select { width: 100%; padding: 8px 12px; margin-bottom: 10px; border-radius: 4px; border: 1px solid var(--border-color); box-sizing: border-box; transition: border-color 0.2s, box-shadow 0.2s; }
+        input[type="text"]:focus, input[type="number"]:focus, select:focus { border-color: var(--primary-color); box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25); outline: none; }
+        input[type="color"] { width: 100%; height: 38px; padding: 0; border: none; background: none; cursor: pointer; }
+        input[type="range"] { width: 100%; }
+        button, .button-like { background-color: var(--primary-color); color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; width: 100%; text-align: center; margin-bottom: 5px; transition: background-color 0.2s, opacity 0.2s, box-shadow 0.2s; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 500; box-sizing: border-box; }
+        button:hover, .button-like:hover { background-color: #0069d9; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        button.active { background-color: #0056b3; box-shadow: inset 0 2px 4px rgba(0,0,0,0.2); }
+        button:disabled { background-color: var(--secondary-color); opacity: 0.65; cursor: not-allowed; box-shadow: none; }
+        .button-secondary { background-color: var(--secondary-color); }
+        .button-secondary:hover:not(:disabled) { background-color: #5a6268; }
+        .button-danger { background-color: var(--danger-color); }
+        .button-danger:hover { background-color: #c82333; }
+        .button-success { background-color: var(--success-color); }
+        .button-success:hover { background-color: #218838; }
+        .icon-button { background-color: transparent; color: var(--icon-color); border: 1px solid var(--border-color); }
+        .icon-button:hover:not(:disabled) { background-color: var(--light-gray); color: var(--primary-color); }
+        .icon-button.active { background-color: #e2e6ea; color: var(--primary-color); border-color: var(--primary-color); box-shadow: none; }
+        .input-group { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+        #drop-zone { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 2px dashed var(--secondary-color); color: var(--secondary-color); display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; transition: background-color 0.3s, border-color 0.3s, opacity 0.3s; background-color: var(--medium-gray); z-index: 10; opacity: 1; }
+        #drop-zone.hidden { opacity: 0; pointer-events: none; }
+        #drop-zone i { font-size: 48px; margin-bottom: 15px; }
+        #drop-zone.dragover { border-color: var(--primary-color); background-color: rgba(0, 123, 255, 0.1); }
+        #loader { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255, 255, 255, 0.85); display: none; justify-content: center; align-items: center; z-index: 1000; font-size: 1.5em; color: #333; }
+        .spinner { border: 4px solid #f3f3f3; border-top: 4px solid var(--primary-color); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin-right: 15px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        input[type="file"] { display: none; }
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 2000; display: none; justify-content: center; align-items: center; }
+        .modal-content { background: var(--white-color); padding: 25px; border-radius: 8px; box-shadow: 0 5px 20px rgba(0,0,0,0.3); width: 90%; max-width: 400px; }
+        .modal-header { font-size: 1.2em; font-weight: 600; margin-bottom: 20px; color: var(--primary-color); }
+        .modal-body .control-group { margin-bottom: 15px; }
+        .modal-body label { font-weight: normal; }
+        #bg-color-group { display: none; }
+        .modal-footer { margin-top: 25px; display: flex; gap: 10px; justify-content: flex-end; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div class="controls">
+            <!-- Section 1: File & View -->
+            <div class="accordion-item">
+                <div class="accordion-header active"><span><i class="fa-solid fa-file-image"></i> 檔案與視圖</span><i class="fa-solid fa-chevron-down"></i></div>
+                <div class="accordion-content show">
+                    <div class="control-group">
+                        <label for="image-upload" class="button-like"><i class="fa-solid fa-upload"></i> 載入主要圖片</label>
+                        <input type="file" id="image-upload" accept="image/*">
+                        <p style="font-size: 0.8em; color: #666; text-align: center;">或將圖片拖曳到右側畫布。</p>
+                    </div>
+                    <div class="control-group">
+                        <p>編輯歷史</p>
+                        <div class="input-group">
+                            <button id="undo-btn" disabled><i class="fa-solid fa-rotate-left"></i>上一步</button>
+                            <button id="redo-btn" disabled><i class="fa-solid fa-rotate-right"></i>下一步</button>
+                        </div>
+                    </div>
+                    <div class="control-group">
+                        <p>視圖控制</p>
+                        <p style="font-size: 0.8em; color: #666;">滾輪縮放，Alt / 中鍵拖曳平移。</p>
+                        <div class="input-group">
+                            <button id="zoom-in-btn"><i class="fa-solid fa-magnifying-glass-plus"></i>放大</button>
+                            <button id="zoom-out-btn"><i class="fa-solid fa-magnifying-glass-minus"></i>縮小</button>
+                        </div>
+                        <div class="input-group">
+                            <button id="fit-to-view-btn"><i class="fa-solid fa-expand"></i>適應視窗</button>
+                            <button id="zoom-to-area-btn"><i class="fa-solid fa-vector-square"></i>框選縮放</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section: Image Transform -->
+            <div class="accordion-item">
+                <div class="accordion-header"><span><i class="fa-solid fa-crop-simple"></i> 圖片變形</span><i class="fa-solid fa-chevron-down"></i></div>
+                <div class="accordion-content">
+                    <div id="transform-controls">
+                        <div class="control-group">
+                            <p>圖片縮放</p>
+                            <div class="input-group">
+                                <input type="range" id="scale-slider" min="10" max="200" value="100" step="1">
+                                <input type="number" id="scale-input" value="100" min="10" max="200" style="width: 80px;">
+                                <span>%</span>
+                            </div>
+                            <div class="input-group">
+                                <button id="apply-scale-btn" class="button-success"><i class="fa-solid fa-check"></i> 套用縮放</button>
+                                <button id="reset-scale-btn" class="button-secondary"><i class="fa-solid fa-times"></i> 重設</button>
+                            </div>
+                        </div>
+                        <div class="control-group">
+                            <p>自由裁切 (可新增多個)</p>
+                            <button id="start-crop-btn"><i class="fa-solid fa-crop"></i> 新增裁切框</button>
+                        </div>
+                    </div>
+                    <div id="cropping-controls" class="hidden">
+                         <div class="control-group">
+                            <p>正在裁切...</p>
+                            <button id="apply-crop-btn" class="button-success"><i class="fa-solid fa-check"></i> 套用全部裁切</button>
+                            <button id="cancel-crop-btn" class="button-danger"><i class="fa-solid fa-times"></i> 取消全部裁切</button>
+                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section: Core Features -->
+            <div class="accordion-item">
+                <div class="accordion-header"><span><i class="fa-solid fa-wand-magic-sparkles"></i> 拼接與裁線</span><i class="fa-solid fa-chevron-down"></i></div>
+                <div class="accordion-content">
+                    <div class="control-group">
+                        <p>智慧拼接</p>
+                        <label for="stitch-images-upload" class="button-like button-secondary"><i class="fa-solid fa-images"></i> 選擇拼接圖片 (可多選)</label>
+                        <input type="file" id="stitch-images-upload" accept="image/*" multiple>
+                        <div class="input-group">
+                            <button id="stitch-v"><i class="fa-solid fa-arrows-up-down"></i>垂直拼接</button>
+                            <button id="stitch-h"><i class="fa-solid fa-arrows-left-right"></i>水平拼接</button>
+                        </div>
+                    </div>
+                    <div class="control-group">
+                        <p>可視化裁線</p>
+                        <div class="input-group">
+                            <button id="add-h-slice-btn" class="button-secondary"><i class="fa-solid fa-ruler-horizontal"></i>水平線</button>
+                            <button id="add-v-slice-btn" class="button-secondary"><i class="fa-solid fa-ruler-vertical"></i>垂直線</button>
+                        </div>
+                        <div class="input-group" style="justify-content: flex-start; margin-bottom: 10px;">
+                            <input type="checkbox" id="invert-slice-selection" style="width: auto; margin: 0 5px 0 0; cursor: pointer;">
+                            <label for="invert-slice-selection" style="margin-bottom: 0; font-weight: normal; cursor: pointer;">保留選區外部</label>
+                        </div>
+                        <button id="exec-slice-btn" class="button-success"><i class="fa-solid fa-scissors"></i>執行裁線拼接</button>
+                        <button id="clear-slice-lines-btn" class="button-danger"><i class="fa-solid fa-times"></i>清除裁線</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section: Object Editing -->
+            <div class="accordion-item">
+                <div class="accordion-header"><span><i class="fa-solid fa-pen-ruler"></i> 物件編輯</span><i class="fa-solid fa-chevron-down"></i></div>
+                <div class="accordion-content">
+                     <div class="control-group">
+                        <p>新增文字</p>
+                        <input type="text" id="text-input" placeholder="在此輸入文字">
+                        <button id="add-text-btn" style="margin-top: -5px; margin-bottom: 15px;"><i class="fa-solid fa-plus"></i> 新增文字到畫布</button>
+                        <div id="text-controls" style="display: none; border-top: 1px dashed var(--border-color); margin-top: 15px; padding-top: 15px;">
+                            <p>文字樣式 (需選取文字)</p>
+                            <label for="font-family">字體:</label>
+                            <select id="font-family"><option value="Arial">Arial</option><option value="Microsoft JhengHei">微軟正黑體</option><option value="PMingLiU">新細明體</option><option value="DFKai-sb">標楷體</option><option value="Courier New">Courier New</option></select>
+                            <div class="input-group">
+                               <label for="text-color" class="button-like icon-button" style="width: auto; padding: 0 5px; flex-grow: 1;"><input type="color" id="text-color" value="#000000"><span style="margin: 0 10px;">顏色</span></label>
+                                <button id="font-bold-btn" class="icon-button" title="粗體"><i class="fa-solid fa-bold"></i></button>
+                                <button id="font-italic-btn" class="icon-button" title="斜體"><i class="fa-solid fa-italic"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="control-group">
+                        <p>新增貼圖</p>
+                        <label for="sticker-upload" class="button-like button-secondary"><i class="fa-regular fa-face-smile"></i> 選擇貼圖檔案</label>
+                        <input type="file" id="sticker-upload" accept="image/*">
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Section: Export & Clear -->
+            <div class="accordion-item">
+                <div class="accordion-header"><span><i class="fa-solid fa-floppy-disk"></i> 匯出與清空</span><i class="fa-solid fa-chevron-down"></i></div>
+                <div class="accordion-content">
+                    <div class="control-group">
+                        <button id="open-download-modal-btn" class="button-success"><i class="fa-solid fa-download"></i>下載圖片</button>
+                    </div>
+                    <div class="control-group">
+                        <button id="delete-selected-btn" class="button-danger"><i class="fa-solid fa-trash-can"></i>刪除選取物件</button>
+                        <button id="clear-all-btn" class="button-danger"><i class="fa-solid fa-trash"></i>全部清除</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="canvas-wrapper" id="canvas-container">
+            <div id="drop-zone">
+                <i class="fa-solid fa-cloud-arrow-up"></i>
+                <p>將圖片拖曳至此處</p>
+            </div>
+            <canvas id="editor-canvas"></canvas>
+            <div id="loader"><div class="spinner"></div>處理中...</div>
+        </div>
+    </div>
+
+    <div id="download-modal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">匯出選項</div>
+            <div class="modal-body">
+                <div class="control-group">
+                    <p>匯出範圍</p>
+                    <div class="input-group" style="flex-direction: column; align-items: flex-start;">
+                        <label><input type="radio" name="export-scope" value="main" checked> 僅匯出主圖範圍</label>
+                        <label><input type="radio" name="export-scope" value="all"> 匯出所有可見物件 (包含貼圖、文字)</label>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <p>背景</p>
+                    <div class="input-group" style="flex-direction: column; align-items: flex-start;">
+                        <label><input type="radio" name="export-bg" value="transparent" checked> 透明背景</label>
+                        <label><input type="radio" name="export-bg" value="color"> 自訂顏色</label>
+                    </div>
+                    <div id="bg-color-group" class="input-group">
+                        <label for="export-bg-color" class="button-like icon-button" style="width: auto; padding: 0 5px; flex-grow: 1;">
+                            <input type="color" id="export-bg-color" value="#FFFFFF">
+                            <span style="margin: 0 10px;">選擇背景顏色</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="cancel-download-btn" class="button-secondary">取消</button>
+                <button id="confirm-download-btn" class="button-success">確認下載</button>
+            </div>
+        </div>
+    </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const canvas = new fabric.Canvas('editor-canvas', { backgroundColor: null, width: 0, height: 0, preserveObjectStacking: true });
+    const canvasContainer = document.getElementById('canvas-container');
+    const loader = document.getElementById('loader');
+    const dropZone = document.getElementById('drop-zone');
+    const ui = {
+        imageUpload: document.getElementById('image-upload'), stitchImagesUpload: document.getElementById('stitch-images-upload'), stickerUpload: document.getElementById('sticker-upload'),
+        undoBtn: document.getElementById('undo-btn'), redoBtn: document.getElementById('redo-btn'),
+        textControls: document.getElementById('text-controls'), textColorInput: document.getElementById('text-color'), fontFamilySelect: document.getElementById('font-family'), fontBoldBtn: document.getElementById('font-bold-btn'), fontItalicBtn: document.getElementById('font-italic-btn'),
+        transformControls: document.getElementById('transform-controls'), croppingControls: document.getElementById('cropping-controls'),
+        startCropBtn: document.getElementById('start-crop-btn'), applyCropBtn: document.getElementById('apply-crop-btn'), cancelCropBtn: document.getElementById('cancel-crop-btn'),
+        scaleSlider: document.getElementById('scale-slider'), scaleInput: document.getElementById('scale-input'), applyScaleBtn: document.getElementById('apply-scale-btn'), resetScaleBtn: document.getElementById('reset-scale-btn'),
+        fitToViewBtn: document.getElementById('fit-to-view-btn'), zoomInBtn: document.getElementById('zoom-in-btn'), zoomOutBtn: document.getElementById('zoom-out-btn'), zoomToAreaBtn: document.getElementById('zoom-to-area-btn'),
+        addHSliceBtn: document.getElementById('add-h-slice-btn'), addVSliceBtn: document.getElementById('add-v-slice-btn'), execSliceBtn: document.getElementById('exec-slice-btn'), clearSliceLinesBtn: document.getElementById('clear-slice-lines-btn'),
+        addTextBtn: document.getElementById('add-text-btn'), deleteSelectedBtn: document.getElementById('delete-selected-btn'), clearAllBtn: document.getElementById('clear-all-btn'),
+        downloadModal: document.getElementById('download-modal'), openDownloadModalBtn: document.getElementById('open-download-modal-btn'), cancelDownloadBtn: document.getElementById('cancel-download-btn'), confirmDownloadBtn: document.getElementById('confirm-download-btn'), bgColorGroup: document.getElementById('bg-color-group')
+    };
+    let mainImage = null, originalCanvasSize = { width: 0, height: 0 }, sliceLine1 = null, sliceLine2 = null, sliceDirection = null;
+    let history = [], historyIndex = -1, historyLock = false, actionLock = false;
+    let isPanning = false, isCropping = false, isZoomingToArea = false;
+    let lastPanPoint = { x: 0, y: 0 }, zoomAreaRect = null;
+
+    document.querySelectorAll('.accordion-header').forEach(header => {
+        header.addEventListener('click', () => { header.classList.toggle('active'); header.nextElementSibling.classList.toggle('show'); });
+    });
+
+    const showLoader = () => loader.style.display = 'flex';
+    const hideLoader = () => loader.style.display = 'none';
+    const updateCanvasSize = (width, height) => { originalCanvasSize = { width, height }; canvas.setWidth(width); canvas.setHeight(height); };
+    const clearSliceLines = () => { if (sliceLine1) canvas.remove(sliceLine1, sliceLine2); sliceLine1 = sliceLine2 = sliceDirection = null; canvas.renderAll(); };
+
+    const saveState = (force = false) => {
+        if (historyLock || (actionLock && !force)) return;
+        history = history.slice(0, historyIndex + 1);
+        const state = canvas.toJSON(['selectable', 'evented', 'excludeFromExport', 'isCropRect', 'isSliceLine']);
+        history.push(state);
+        historyIndex = history.length - 1;
+        updateHistoryButtons();
+    };
+
+    const loadStateFromHistory = (index) => {
+        if (!history[index]) return;
+        historyLock = true;
+        showLoader();
+        canvas.loadFromJSON(history[index], () => {
+            canvas.setWidth(originalCanvasSize.width); canvas.setHeight(originalCanvasSize.height);
+            mainImage = canvas.backgroundImage;
+            const cropRects = canvas.getObjects().filter(obj => obj.isCropRect);
+            if (cropRects.length > 0) {
+                toggleCropMode(true, false);
+                cropRects.forEach(rect => rect.setCoords());
+                canvas.setActiveObject(cropRects[0]);
+            } else {
+                toggleCropMode(false, false);
+            }
+            canvas.renderAll();
+            historyLock = false;
+            hideLoader();
+            updateTextControls();
+        });
+    };
+
+    const updateHistoryButtons = () => { ui.undoBtn.disabled = historyIndex <= 0; ui.redoBtn.disabled = historyIndex >= history.length - 1; };
+    ui.undoBtn.addEventListener('click', () => { if (historyIndex > 0) { historyIndex--; loadStateFromHistory(historyIndex); updateHistoryButtons(); } });
+    ui.redoBtn.addEventListener('click', () => { if (historyIndex < history.length - 1) { historyIndex++; loadStateFromHistory(historyIndex); updateHistoryButtons(); } });
+
+    const setNewMainImage = (url, options = {}) => {
+        const { clearHistory = false, saveState: shouldSave = true, position = { left: 0, top: 0 }, forceUpdateSize = false } = options;
+        historyLock = true;
+        showLoader();
+        fabric.Image.fromURL(url, (img) => {
+            if (clearHistory) {
+                clearSliceLines(); canvas.clear(); history = []; historyIndex = -1; updateHistoryButtons();
+                updateCanvasSize(img.width, img.height);
+            }
+            if (forceUpdateSize) {
+                updateCanvasSize(img.width, img.height);
+            }
+            mainImage = img;
+            mainImage.set(position);
+            const otherObjects = canvas.getObjects().filter(o => !o.isCropRect && !o.isSliceLine);
+            canvas.clear();
+            canvas.add(...otherObjects);
+            canvas.setBackgroundImage(mainImage, () => {
+                fitToView();
+                historyLock = false;
+                if (shouldSave) saveState(true);
+                hideLoader();
+            }, { originX: 'left', originY: 'top' });
+        }, { crossOrigin: 'anonymous' });
+    };
+
+    const resetCanvas = (clearHistory = false) => {
+        clearSliceLines(); canvas.clear(); mainImage = null; updateCanvasSize(0, 0);
+        canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
+        canvas.setBackgroundImage(null, canvas.renderAll.bind(canvas));
+        if (clearHistory) { history = []; historyIndex = -1; saveState(); updateHistoryButtons(); }
+        dropZone.classList.remove('hidden');
+    };
+
+    const handleFile = (file, isSticker = false) => {
+        if (!file || !file.type.startsWith('image/')) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            if (isSticker) {
+                if (!mainImage) { alert('請先載入主圖再新增貼圖'); return; }
+                fabric.Image.fromURL(e.target.result, (img) => {
+                    const center = getViewportCenter();
+                    img.set({ left: center.x, top: center.y, originX: 'center', originY: 'center' }).scaleToWidth(150);
+                    canvas.add(img).setActiveObject(img).renderAll();
+                    saveState();
+                });
+            } else {
+                dropZone.classList.add('hidden');
+                setNewMainImage(e.target.result, { clearHistory: true });
+            }
+        };
+        reader.readAsDataURL(file);
+    };
+    
+    const getObjectsBoundingBox = (includeBackground = false) => {
+        let box = null;
+        const objects = canvas.getObjects();
+        if (includeBackground && mainImage) { box = { ...mainImage.getBoundingRect() }; }
+        if (objects.length > 0) {
+            objects.forEach(obj => {
+                const objBox = obj.getBoundingRect();
+                if (!box) {
+                    box = { ...objBox };
+                } else {
+                    const minX = Math.min(box.left, objBox.left);
+                    const minY = Math.min(box.top, objBox.top);
+                    const maxX = Math.max(box.left + box.width, objBox.left + objBox.width);
+                    const maxY = Math.max(box.top + box.height, objBox.top + objBox.height);
+                    box = { left: minX, top: minY, width: maxX - minX, height: maxY - minY };
+                }
+            });
+        }
+        return box;
+    };
+
+    const fitToView = () => {
+        const wrapperWidth = canvasContainer.clientWidth;
+        const wrapperHeight = canvasContainer.clientHeight;
+        const contentBox = getObjectsBoundingBox(true);
+        if (!contentBox || contentBox.width === 0 || contentBox.height === 0) return;
+        const padding = 20;
+        const availableWidth = wrapperWidth - padding * 2;
+        const availableHeight = wrapperHeight - padding * 2;
+        const zoom = Math.min(availableWidth / contentBox.width, availableHeight / contentBox.height);
+        const panX = (wrapperWidth - contentBox.width * zoom) / 2 - contentBox.left * zoom;
+        const panY = (wrapperHeight - contentBox.height * zoom) / 2 - contentBox.top * zoom;
+        canvas.setViewportTransform([zoom, 0, 0, zoom, panX, panY]);
+        canvas.renderAll();
+    };
+    ui.fitToViewBtn.addEventListener('click', fitToView);
+    ui.zoomInBtn.addEventListener('click', () => { canvas.zoomToPoint(new fabric.Point(canvas.width / 2, canvas.height / 2), canvas.getZoom() * 1.2); });
+    ui.zoomOutBtn.addEventListener('click', () => { canvas.zoomToPoint(new fabric.Point(canvas.width / 2, canvas.height / 2), canvas.getZoom() / 1.2); });
+    ui.zoomToAreaBtn.addEventListener('click', () => { isZoomingToArea = true; canvas.defaultCursor = 'crosshair'; canvas.selection = false; canvas.getObjects().forEach(o => o.set('selectable', false)); ui.zoomToAreaBtn.classList.add('active'); });
+
+    const updateScaleControls = () => { if (mainImage) { const scaleValue = (mainImage.scaleX || 1) * 100; ui.scaleSlider.value = scaleValue; ui.scaleInput.value = Math.round(scaleValue); }};
+    const handleScaleChange = (value) => { if (mainImage) { mainImage.scale(value / 100); canvas.renderAll(); }};
+    ui.scaleSlider.addEventListener('input', (e) => { ui.scaleInput.value = e.target.value; handleScaleChange(parseInt(e.target.value, 10)); });
+    ui.scaleInput.addEventListener('input', (e) => { let v = parseInt(e.target.value, 10) || 100; v = Math.max(10, Math.min(v, 200)); ui.scaleSlider.value = v; handleScaleChange(v); });
+    ui.resetScaleBtn.addEventListener('click', () => { if (mainImage) { mainImage.scale(1); updateScaleControls(); canvas.renderAll(); } });
+    ui.applyScaleBtn.addEventListener('click', () => { if (mainImage) { const dataURL = mainImage.toDataURL(); setNewMainImage(dataURL, { clearHistory: false, forceUpdateSize: true }); } });
+
+    const applyAllCrops = async () => {
+        const cropRects = canvas.getObjects().filter(obj => obj.isCropRect);
+        if (cropRects.length === 0) return;
+        showLoader();
+        cropRects.sort((a, b) => a.left - b.left);
+        let totalWidth = 0, maxHeight = 0;
+        const croppedImages = [];
+        for (const rect of cropRects) {
+            const dataUrl = canvas.toDataURL({ left: rect.left, top: rect.top, width: rect.getScaledWidth(), height: rect.getScaledHeight() });
+            const imgEl = await new Promise(r => { const i = new Image(); i.onload = () => r(i); i.src = dataUrl; });
+            totalWidth += imgEl.width; maxHeight = Math.max(maxHeight, imgEl.height); croppedImages.push(imgEl);
+        }
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = totalWidth; tempCanvas.height = maxHeight;
+        const ctx = tempCanvas.getContext('2d');
+        let currentX = 0;
+        croppedImages.forEach(img => { ctx.drawImage(img, currentX, 0); currentX += img.width; });
+        toggleCropMode(false);
+        setNewMainImage(tempCanvas.toDataURL(), { clearHistory: false, forceUpdateSize: true, position: { left: cropRects[0].left, top: cropRects[0].top } });
+    };
+
+    const toggleCropMode = (enable, shouldAddRect = true) => {
+        isCropping = enable; ui.transformControls.classList.toggle('hidden', enable); ui.croppingControls.classList.toggle('hidden', !enable);
+        if (enable && shouldAddRect) { addCropRect(); } 
+        else if (!enable) { canvas.getObjects().filter(obj => obj.isCropRect).forEach(obj => canvas.remove(obj)); canvas.discardActiveObject().renderAll(); }
+    };
+
+    const addCropRect = () => {
+        const center = getViewportCenter();
+        const rectWidth = mainImage ? mainImage.getScaledWidth() / 4 : 200;
+        const rectHeight = mainImage ? mainImage.getScaledHeight() / 4 : 200;
+        const cropRect = new fabric.Rect({ left: center.x, top: center.y, originX: 'center', originY: 'center', width: rectWidth, height: rectHeight, fill: 'rgba(0,0,0,0.4)', stroke: '#007bff', strokeWidth: 2, borderColor: '#007bff', cornerColor: 'white', cornerSize: 12, transparentCorners: false, hasRotatingPoint: false, isCropRect: true });
+        cropRect.controls.applyControl = new fabric.Control({ x: 0, y: 0.5, offsetY: 30, cursorStyle: 'pointer', actionHandler: () => ui.applyCropBtn.click(), render: renderControlIcon('\uf00c', 'green') });
+        cropRect.controls.cancelControl = new fabric.Control({ x: 0.5, y: 0.5, offsetY: 30, cursorStyle: 'pointer',
+            actionHandler: (eventData, transform) => {
+                canvas.remove(transform.target);
+                if (canvas.getObjects().filter(o => o.isCropRect).length === 0) { toggleCropMode(false, false); }
+                canvas.renderAll();
+            }, render: renderControlIcon('\uf00d', 'red') });
+        canvas.add(cropRect).setActiveObject(cropRect).renderAll();
+    };
+    function renderControlIcon(icon, color) {
+        return (ctx, left, top) => {
+            const size = 24; ctx.save(); ctx.translate(left, top); ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.beginPath(); ctx.arc(0, 0, size / 1.5, 0, 2 * Math.PI); ctx.fill();
+            ctx.font = `900 ${size}px "Font Awesome 6 Free"`; ctx.fillStyle = color; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(icon, 0, 0); ctx.restore();
+        }
+    }
+    ui.startCropBtn.addEventListener('click', () => { if (mainImage) { toggleCropMode(true); } else { alert("請先載入圖片"); }});
+    ui.cancelCropBtn.addEventListener('click', () => { toggleCropMode(false); saveState(); });
+    ui.applyCropBtn.addEventListener('click', applyAllCrops);
+
+    canvas.on('mouse:down', function(opt) {
+        const evt = opt.e;
+        if (evt.altKey || evt.button === 1) { isPanning = true; canvas.selection = false; lastPanPoint = { x: evt.clientX, y: evt.clientY }; this.setCursor('grabbing'); } 
+        else if (isZoomingToArea) { const pointer = canvas.getPointer(evt); zoomAreaStartPoint = pointer; zoomAreaRect = new fabric.Rect({ left: pointer.x, top: pointer.y, width: 0, height: 0, fill: 'rgba(0, 123, 255, 0.2)', stroke: '#007bff', strokeWidth: 1 }); canvas.add(zoomAreaRect); }
+    });
+    canvas.on('mouse:move', function(opt) {
+        if (isPanning) { const e = opt.e, vpt = this.viewportTransform; vpt[4] += e.clientX - lastPanPoint.x; vpt[5] += e.clientY - lastPanPoint.y; this.requestRenderAll(); lastPanPoint = { x: e.clientX, y: e.clientY }; } 
+        else if (isZoomingToArea && zoomAreaRect) { const pointer = canvas.getPointer(opt.e); zoomAreaRect.set({ width: Math.abs(pointer.x - zoomAreaStartPoint.x), height: Math.abs(pointer.y - zoomAreaStartPoint.y) }); if (pointer.x < zoomAreaStartPoint.x) zoomAreaRect.set({ left: pointer.x }); if (pointer.y < zoomAreaStartPoint.y) zoomAreaRect.set({ top: pointer.y }); canvas.renderAll(); }
+    });
+    canvas.on('mouse:up', function() {
+        if (isPanning) { this.setViewportTransform(this.viewportTransform); isPanning = false; canvas.selection = true; this.setCursor('default'); } 
+        else if (isZoomingToArea && zoomAreaRect) {
+            const cancelZoomToArea = () => { isZoomingToArea = false; canvas.defaultCursor = 'default'; canvas.selection = true; canvas.getObjects().forEach(o => o.set('selectable', true)); if (zoomAreaRect) canvas.remove(zoomAreaRect); zoomAreaRect = null; ui.zoomToAreaBtn.classList.remove('active'); };
+            if (zoomAreaRect.width > 10 && zoomAreaRect.height > 10) { const zoom = Math.min(canvasContainer.clientWidth / zoomAreaRect.width, canvasContainer.clientHeight / zoomAreaRect.height); const vpt = canvas.viewportTransform; vpt[0] = vpt[3] = zoom; vpt[4] = (canvasContainer.clientWidth / 2) - (zoomAreaRect.left + zoomAreaRect.width / 2) * zoom; vpt[5] = (canvasContainer.clientHeight / 2) - (zoomAreaRect.top + zoomAreaRect.height / 2) * zoom; canvas.setViewportTransform(vpt); }
+            cancelZoomToArea();
+        }
+    });
+    canvas.on('mouse:wheel', function(opt) {
+        opt.e.preventDefault(); opt.e.stopPropagation();
+        let zoom = canvas.getZoom() * (0.999 ** opt.e.deltaY); zoom = Math.max(0.01, Math.min(zoom, 20));
+        canvas.zoomToPoint({ x: opt.e.offsetX, y: opt.e.offsetY }, zoom);
+    });
+
+    const filesToImageElements = (files) => Promise.all(Array.from(files).map(file => new Promise((resolve) => { if (!file.type.startsWith('image/')) return resolve(null); const reader = new FileReader(); reader.onload = (e) => { const img = new Image(); img.onload = () => resolve(img); img.src = e.target.result; }; reader.readAsDataURL(file); }))).then(images => images.filter(img => img !== null));
+    const handleStitch = async (direction) => {
+        if (ui.stitchImagesUpload.files.length === 0 && !mainImage) return alert('請選擇要拼接的圖片！');
+        showLoader();
+        const otherImages = await filesToImageElements(ui.stitchImagesUpload.files);
+        let allImages = [];
+        if (mainImage) { const mainImgEl = await new Promise(r => { const i = new Image(); i.onload = () => r(i); i.src = mainImage.toDataURL(); }); allImages.push(mainImgEl); }
+        allImages = allImages.concat(otherImages);
+        if (allImages.length < 2) { alert('至少需要兩張圖片才能拼接。'); hideLoader(); return; }
+        let totalWidth = (direction === 'horizontal') ? allImages.reduce((sum, img) => sum + img.width, 0) : Math.max(...allImages.map(img => img.width));
+        let totalHeight = (direction === 'vertical') ? allImages.reduce((sum, img) => sum + img.height, 0) : Math.max(...allImages.map(img => img.height));
+        const tempCanvas = document.createElement('canvas'); tempCanvas.width = totalWidth; tempCanvas.height = totalHeight;
+        const ctx = tempCanvas.getContext('2d');
+        let currentX = 0, currentY = 0;
+        allImages.forEach(img => { ctx.drawImage(img, currentX, currentY); if (direction === 'vertical') currentY += img.height; else currentX += img.width; });
+        setNewMainImage(tempCanvas.toDataURL(), { clearHistory: false, forceUpdateSize: true });
+        ui.stitchImagesUpload.value = '';
+    };
+    document.getElementById('stitch-v').addEventListener('click', () => handleStitch('vertical'));
+    document.getElementById('stitch-h').addEventListener('click', () => handleStitch('horizontal'));
+    const createSliceLines = (direction) => {
+        if (!mainImage) return alert('請先載入圖片！');
+        clearSliceLines(); sliceDirection = direction;
+        const lineProps = { stroke: 'rgba(220, 53, 69, 0.8)', strokeWidth: 2, selectable: true, hasControls: false, hasBorders: false, excludeFromExport: true, padding: 10, isSliceLine: true };
+        const canvasW = mainImage.getScaledWidth(), canvasH = mainImage.getScaledHeight();
+        if (direction === 'horizontal') { sliceLine1 = new fabric.Line([0, canvasH / 3, canvasW, canvasH / 3], { ...lineProps, lockMovementX: true }); sliceLine2 = new fabric.Line([0, canvasH * 2 / 3, canvasW, canvasH * 2 / 3], { ...lineProps, lockMovementX: true }); } 
+        else { sliceLine1 = new fabric.Line([canvasW / 3, 0, canvasW / 3, canvasH], { ...lineProps, lockMovementY: true }); sliceLine2 = new fabric.Line([canvasW * 2 / 3, 0, canvasW * 2 / 3, canvasH], { ...lineProps, lockMovementY: true }); }
+        canvas.add(sliceLine1, sliceLine2).renderAll();
+    };
+    ui.addHSliceBtn.addEventListener('click', () => createSliceLines('horizontal'));
+    ui.addVSliceBtn.addEventListener('click', () => createSliceLines('vertical'));
+    ui.clearSliceLinesBtn.addEventListener('click', clearSliceLines);
+    ui.execSliceBtn.addEventListener('click', async () => {
+        if (!sliceLine1 || !sliceLine2 || !mainImage) return alert('請先載入圖片並新增裁切線！');
+        showLoader();
+        const invertSelection = document.getElementById('invert-slice-selection').checked;
+        const baseImageElement = await new Promise(r => { const i = new Image(); i.onload = () => r(i); i.src = mainImage.toDataURL(); });
+        const tempCanvas = document.createElement('canvas'); const ctx = tempCanvas.getContext('2d');
+        if (sliceDirection === 'horizontal') {
+            const y1 = Math.min(sliceLine1.top, sliceLine2.top); const y2 = Math.max(sliceLine1.top, sliceLine2.top);
+            if (!invertSelection) { const h = y2 - y1; if (h <= 0) { hideLoader(); return; } tempCanvas.width = baseImageElement.width; tempCanvas.height = h; ctx.drawImage(baseImageElement, 0, y1, baseImageElement.width, h, 0, 0, baseImageElement.width, h); } 
+            else { const h = baseImageElement.height - (y2 - y1); if (h <= 0) { hideLoader(); return; } tempCanvas.width = baseImageElement.width; tempCanvas.height = h; ctx.drawImage(baseImageElement, 0, 0, baseImageElement.width, y1, 0, 0, baseImageElement.width, y1); ctx.drawImage(baseImageElement, 0, y2, baseImageElement.width, baseImageElement.height - y2, 0, y1, baseImageElement.width, baseImageElement.height - y2); }
+        } else {
+            const x1 = Math.min(sliceLine1.left, sliceLine2.left); const x2 = Math.max(sliceLine1.left, sliceLine2.left);
+            if (!invertSelection) { const w = x2 - x1; if (w <= 0) { hideLoader(); return; } tempCanvas.width = w; tempCanvas.height = baseImageElement.height; ctx.drawImage(baseImageElement, x1, 0, w, baseImageElement.height, 0, 0, w, baseImageElement.height); } 
+            else { const w = baseImageElement.width - (x2 - x1); if (w <= 0) { hideLoader(); return; } tempCanvas.width = w; tempCanvas.height = baseImageElement.height; ctx.drawImage(baseImageElement, 0, 0, x1, baseImageElement.height, 0, 0, x1, baseImageElement.height); ctx.drawImage(baseImageElement, x2, 0, baseImageElement.width - x2, baseImageElement.height, x1, 0, baseImageElement.width - x2, baseImageElement.height); }
+        }
+        setNewMainImage(tempCanvas.toDataURL(), { clearHistory: false, forceUpdateSize: true });
+    });
+
+    const getViewportCenter = () => { const vpt = canvas.viewportTransform; return new fabric.Point((canvasContainer.clientWidth / 2 - vpt[4]) / vpt[0], (canvasContainer.clientHeight / 2 - vpt[3]) / vpt[3]); };
+    ui.addTextBtn.addEventListener('click', () => {
+        if (!mainImage && canvas.getObjects().length === 0) return alert('請先載入圖片！');
+        const text = document.getElementById('text-input').value || '雙擊編輯文字';
+        const textbox = new fabric.Textbox(text, { left: getViewportCenter().x, top: getViewportCenter().y, originX: 'center', originY: 'center', fontSize: 50, fill: ui.textColorInput.value, fontFamily: ui.fontFamilySelect.value });
+        canvas.add(textbox).setActiveObject(textbox).renderAll();
+        saveState();
+    });
+    const updateTextControls = () => {
+        const activeObject = canvas.getActiveObject(); const isTextbox = activeObject && activeObject.isType('textbox');
+        ui.textControls.style.display = isTextbox ? 'block' : 'none';
+        if (isTextbox) { ui.textColorInput.value = activeObject.get('fill'); ui.fontFamilySelect.value = activeObject.get('fontFamily'); ui.fontBoldBtn.classList.toggle('active', activeObject.get('fontWeight') === 'bold'); ui.fontItalicBtn.classList.toggle('active', activeObject.get('fontStyle') === 'italic'); }
+    };
+    canvas.on({ 'selection:created': updateTextControls, 'selection:updated': updateTextControls, 'selection:cleared': updateTextControls, 'object:modified': () => saveState() });
+    ui.textColorInput.addEventListener('input', (e) => { const obj = canvas.getActiveObject(); if (obj && obj.isType('textbox')) { obj.set('fill', e.target.value); canvas.renderAll(); } });
+    ui.textColorInput.addEventListener('change', () => saveState());
+    ui.fontFamilySelect.addEventListener('change', (e) => { const obj = canvas.getActiveObject(); if (obj && obj.isType('textbox')) { obj.set('fontFamily', e.target.value); canvas.renderAll(); saveState(); } });
+    ui.fontBoldBtn.addEventListener('click', () => { const obj = canvas.getActiveObject(); if (obj && obj.isType('textbox')) { obj.set('fontWeight', obj.get('fontWeight') === 'bold' ? 'normal' : 'bold'); ui.fontBoldBtn.classList.toggle('active'); canvas.renderAll(); saveState(); } });
+    ui.fontItalicBtn.addEventListener('click', () => { const obj = canvas.getActiveObject(); if (obj && obj.isType('textbox')) { obj.set('fontStyle', obj.get('fontStyle') === 'italic' ? 'normal' : 'italic'); ui.fontItalicBtn.classList.toggle('active'); canvas.renderAll(); saveState(); } });
+    ui.deleteSelectedBtn.addEventListener('click', () => { canvas.getActiveObjects().forEach(obj => canvas.remove(obj)); canvas.discardActiveObject().renderAll(); saveState(); });
+    ui.clearAllBtn.addEventListener('click', () => { if (confirm('確定要清除所有內容嗎？此操作將清空歷史紀錄。')) { resetCanvas(true); } });
+    window.addEventListener('keydown', (e) => { if ((e.key === 'Delete' || e.key === 'Backspace') && canvas.getActiveObjects().length > 0) { e.preventDefault(); ui.deleteSelectedBtn.click(); } if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); ui.undoBtn.click(); } if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'Z' && e.shiftKey))) { e.preventDefault(); ui.redoBtn.click(); } });
+
+    ui.openDownloadModalBtn.addEventListener('click', () => { if (!mainImage && canvas.getObjects().length === 0) { alert('畫布上沒有內容可供下載！'); return; } ui.downloadModal.style.display = 'flex'; });
+    ui.cancelDownloadBtn.addEventListener('click', () => { ui.downloadModal.style.display = 'none'; });
+    document.querySelectorAll('input[name="export-bg"]').forEach(radio => { radio.addEventListener('change', (e) => { ui.bgColorGroup.style.display = (e.target.value === 'color') ? 'flex' : 'none'; }); });
+    ui.confirmDownloadBtn.addEventListener('click', () => {
+        const scope = document.querySelector('input[name="export-scope"]:checked').value;
+        const bgOption = document.querySelector('input[name="export-bg"]:checked').value;
+        const bgColor = (bgOption === 'color') ? document.getElementById('export-bg-color').value : null;
+        let exportOptions = { format: 'png', quality: 1.0 };
+        let targetBox = (scope === 'all') ? getObjectsBoundingBox(true) : (mainImage ? mainImage.getBoundingRect() : null);
+        if (!targetBox) { alert('沒有可匯出的內容。'); return; }
+        exportOptions.left = targetBox.left; exportOptions.top = targetBox.top; exportOptions.width = targetBox.width; exportOptions.height = targetBox.height;
+        const originalBg = canvas.backgroundColor;
+        if (bgColor) canvas.backgroundColor = bgColor;
+        const dataUrl = canvas.toDataURL(exportOptions);
+        canvas.backgroundColor = originalBg;
+        const link = document.createElement('a'); link.href = dataUrl; link.download = `processed-image-${Date.now()}.png`;
+        document.body.appendChild(link); link.click(); document.body.removeChild(link);
+        ui.downloadModal.style.display = 'none';
+    });
+
+    ui.imageUpload.addEventListener('change', (e) => { if (e.target.files.length) handleFile(e.target.files[0], false); e.target.value = ''; });
+    ui.stickerUpload.addEventListener('change', (e) => { if (e.target.files.length) handleFile(e.target.files[0], true); e.target.value = ''; });
+    canvasContainer.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+    canvasContainer.addEventListener('dragleave', (e) => { e.preventDefault(); dropZone.classList.remove('dragover'); });
+    canvasContainer.addEventListener('drop', (e) => { e.preventDefault(); dropZone.classList.remove('dragover'); if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0], false); });
+    
+    resetCanvas(true);
+});
+</script>
+
+</body>
+</html>
