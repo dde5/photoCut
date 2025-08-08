@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ImageCraft v3 - 網頁圖片工具 (含預覽功能)</title>
+    
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+    <style>
+        :root {
+            --primary-color: #4a90e2;
+            --secondary-color: #f5f7fa;
+            --text-color: #333;
+            --border-color: #dfe4ea;
+            --background-color: #ffffff;
+            --shadow-color: rgba(0, 0, 0, 0.1);
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            margin: 0;
+            background-color: var(--secondary-color);
+            color: var(--text-color);
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        #app-container {
+            width: 100%; max-width: 1200px;
+            background: var(--background-color);
+            border-radius: 12px;
+            box-shadow: 0 4px 20px var(--shadow-color);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            background: var(--primary-color); color: white;
+            padding: 15px 25px; text-align: center;
+        }
+        header h1 { margin: 0; font-size: 1.5rem; }
+
+        #main-content { display: flex; flex-direction: row; }
+
+        #controls-panel {
+            width: 320px;
+            border-right: 1px solid var(--border-color);
+            padding: 20px; box-sizing: border-box;
+            background: var(--background-color);
+            display: flex; flex-direction: column; gap: 25px;
+        }
+        
+        .control-group { display: flex; flex-direction: column; gap: 10px; }
+        .control-group h3 {
+            margin: 0 0 10px 0; font-size: 1rem;
+            border-bottom: 2px solid var(--primary-color);
+            padding-bottom: 5px;
+        }
+        
+        .mode-selector { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .mode-selector button {
+            display: flex; align-items: center; justify-content: center;
+            gap: 8px; padding: 10px; border: 1px solid var(--border-color);
+            background: #fff; border-radius: 8px; cursor: pointer;
+            transition: all 0.2s ease; font-size: 0.9rem; text-align: center;
+        }
+        .mode-selector button:hover { background-color: #f0f4f8; border-color: var(--primary-color); }
+        .mode-selector button.active { background-color: var(--primary-color); color: white; border-color: var(--primary-color); }
+
+        .sub-controls { display: none; flex-direction: column; gap: 15px; animation: fadeIn 0.3s; }
+        
+        .input-group { display: flex; flex-direction: column; gap: 5px; }
+        .input-group label { font-size: 0.85rem; color: #555; }
+        .input-group input[type="number"], .input-group select {
+            width: 100%; padding: 8px; border-radius: 5px;
+            border: 1px solid var(--border-color); box-sizing: border-box;
+        }
+        
+        .btn-group { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .btn {
+            padding: 10px; border-radius: 5px; border: 1px solid var(--primary-color);
+            background: #fff; color: var(--primary-color);
+            cursor: pointer; transition: background-color 0.2s;
+            width: 100%; box-sizing: border-box;
+        }
+        .btn-primary { background: var(--primary-color); color: #fff; }
+        .btn-primary:hover { background: #3a80d2; }
+        .btn:hover { background: #eef4ff; }
+        
+        #download-btn {
+            background: #28a745; color: white; border: none;
+            width: 100%; padding: 12px; font-size: 1.1rem;
+            font-weight: bold; border-radius: 8px;
+        }
+        #download-btn:disabled { background: #999; cursor: not-allowed; }
+
+        #workspace {
+            flex: 1; padding: 20px; display: flex;
+            justify-content: center; align-items: center; flex-direction: column;
+            background: #f8f9fa; min-height: 500px; position: relative;
+        }
+
+        #drop-zone {
+            width: 100%; min-height: 300px;
+            border: 3px dashed var(--border-color); border-radius: 12px;
+            display: flex; flex-direction: column; justify-content: center;
+            align-items: center; text-align: center; transition: all 0.3s;
+        }
+        #drop-zone.dragover { border-color: var(--primary-color); background: #eef4ff; }
+        #drop-zone p { color: #777; }
+
+        #image-preview-container, #canvas-container {
+            width: 100%; height: 100%;
+            display: flex; justify-content: center; align-items: center;
+        }
+        #image-preview-container img, #main-canvas {
+            max-width: 100%; max-height: 60vh; display: block;
+        }
+        #main-canvas { box-shadow: 0 0 10px rgba(0,0,0,0.1); background: white; }
+        
+        .hidden { display: none !important; }
+        
+        .loading-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255,255,255,0.8); display: flex;
+            justify-content: center; align-items: center; z-index: 1000;
+        }
+
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        
+        @media (max-width: 900px) {
+            #main-content { flex-direction: column; }
+            #controls-panel { width: 100%; border-right: none; border-bottom: 1px solid var(--border-color); }
+            .mode-selector { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="app-container">
+        <header><h1><i class="fa-solid fa-wand-magic-sparkles"></i> ImageCraft v3 - 網頁圖片工具</h1></header>
+
+        <div id="main-content">
+            <div id="controls-panel">
+                <div class="control-group">
+                    <h3>1. 選擇模式</h3>
+                    <div class="mode-selector">
+                        <button data-mode="merge-h"><i class="fa-solid fa-arrow-right-long"></i> 橫向合併</button>
+                        <button data-mode="merge-v"><i class="fa-solid fa-arrow-down-long"></i> 直向合併</button>
+                        <button data-mode="crop"><i class="fa-solid fa-crop-simple"></i> 智慧裁切</button>
+                        <button data-mode="split"><i class="fa-solid fa-table-cells"></i> 九宮格</button>
+                        <button data-mode="slice-v"><i class="fa-solid fa-arrows-left-right"></i> 直向切片</button>
+                        <button data-mode="slice-h"><i class="fa-solid fa-arrows-up-down"></i> 橫向切片</button>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <h3 id="controls-title">2. 設定選項</h3>
+                    <div id="merge-controls" class="sub-controls"><p style="color:#777; font-size:0.9rem;">請上傳多張圖片進行合併。</p></div>
+                    <div id="crop-controls" class="sub-controls">
+                        <div class="btn-group"><button class="btn" data-ratio="free">自由</button><button class="btn" data-ratio="1/1">1:1</button><button class="btn" data-ratio="16/9">16:9</button><button class="btn" data-ratio="4/5">4:5</button></div>
+                    </div>
+                    <div id="split-controls" class="sub-controls">
+                        <div class="input-group"><label for="split-cols">欄:</label><input type="number" id="split-cols" value="3" min="1"></div>
+                        <div class="input-group"><label for="split-rows">列:</label><input type="number" id="split-rows" value="3" min="1"></div>
+                        <div class="input-group"><label><input type="checkbox" id="split-zip"> 下載 ZIP 檔</label></div>
+                    </div>
+                    <div id="slice-controls" class="sub-controls">
+                        <p style="color:#777; font-size:0.9rem;">在右側圖片上拖曳選取要<b>移除</b>的區域。</p>
+                        <button id="preview-slice-btn" class="btn btn-primary"><i class="fa-solid fa-eye"></i> 預覽切片結果</button>
+                        <button id="cancel-slice-preview-btn" class="btn hidden"><i class="fa-solid fa-arrow-left"></i> 返回調整</button>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <h3>3. 匯出圖片</h3>
+                    <div class="input-group"><label for="export-format">檔案格式:</label><select id="export-format"><option value="png">PNG</option><option value="jpeg">JPG</option><option value="webp">WEBP</option></select></div>
+                    <div class="input-group hidden" id="quality-control"><label for="export-quality">品質 (0-100):</label><input type="range" id="export-quality" min="0" max="100" value="90"></div>
+                    <button id="download-btn" disabled><i class="fa-solid fa-download"></i> 下載成品</button>
+                </div>
+            </div>
+
+            <div id="workspace">
+                <input type="file" id="file-input" class="hidden" multiple accept="image/*">
+                <div id="drop-zone"><i class="fa-solid fa-images fa-3x" style="color:#ccc;"></i><h2 id="drop-zone-title">請先選擇一個模式</h2><p id="drop-zone-text">然後點擊此處或拖曳圖片到這裡</p></div>
+                <div id="image-preview-container" class="hidden"><img id="image-preview" src=""></div>
+                <div id="canvas-container" class="hidden"><canvas id="main-canvas"></canvas></div>
+                <div id="loading-overlay" class="loading-overlay hidden"><i class="fas fa-spinner fa-spin fa-3x"></i></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+    <script>
+        // DOM Elements
+        const modeButtons = document.querySelectorAll('.mode-selector button');
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const controlsTitle = document.getElementById('controls-title');
+        const imagePreviewContainer = document.getElementById('image-preview-container');
+        const imagePreview = document.getElementById('image-preview');
+        const canvasContainer = document.getElementById('canvas-container');
+        const mainCanvas = document.getElementById('main-canvas');
+        const ctx = mainCanvas.getContext('2d');
+        const downloadBtn = document.getElementById('download-btn');
+        const exportFormatSelect = document.getElementById('export-format');
+        const qualityControl = document.getElementById('quality-control');
+        const exportQualityInput = document.getElementById('export-quality');
+        const dropZoneTitle = document.getElementById('drop-zone-title');
+        const dropZoneText = document.getElementById('drop-zone-text');
+        const loadingOverlay = document.getElementById('loading-overlay');
+        const allSubControls = document.querySelectorAll('.sub-controls');
+        // Slice controls
+        const sliceControls = document.getElementById('slice-controls');
+        const previewSliceBtn = document.getElementById('preview-slice-btn');
+        const cancelSlicePreviewBtn = document.getElementById('cancel-slice-preview-btn');
+        
+        // App State
+        let state = {
+            mode: null,
+            files: [],
+            cropper: null,
+            isPreviewing: false,
+        };
+
+        // Event Listeners
+        modeButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                const newMode = button.dataset.mode;
+                if (state.mode === newMode) return;
+                state.mode = newMode;
+                updateActiveButton();
+                updateControlsUI();
+                resetWorkspace();
+            });
+        });
+        
+        dropZone.addEventListener('click', () => { if (state.mode) fileInput.click(); });
+        dropZone.addEventListener('dragover', (e) => { e.preventDefault(); if (state.mode) dropZone.classList.add('dragover'); });
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+        dropZone.addEventListener('drop', (e) => { e.preventDefault(); dropZone.classList.remove('dragover'); if (state.mode && e.dataTransfer.files.length > 0) handleFiles(e.dataTransfer.files); });
+        fileInput.addEventListener('change', (e) => { if (e.target.files.length > 0) handleFiles(e.target.files); });
+        
+        document.getElementById('crop-controls').addEventListener('click', (e) => {
+            if (e.target.tagName === 'BUTTON' && state.cropper) state.cropper.setAspectRatio(e.target.dataset.ratio === 'free' ? NaN : eval(e.target.dataset.ratio));
+        });
+
+        previewSliceBtn.addEventListener('click', showSlicePreview);
+        cancelSlicePreviewBtn.addEventListener('click', cancelSlicePreview);
+
+        exportFormatSelect.addEventListener('change', () => qualityControl.classList.toggle('hidden', exportFormatSelect.value === 'png'));
+        downloadBtn.addEventListener('click', handleDownload);
+
+        // UI Update Functions
+        function updateActiveButton() { modeButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.mode === state.mode)); }
+        
+        function updateControlsUI() {
+            allSubControls.forEach(c => c.style.display = 'none');
+            let title = '2. 設定選項', dzTitle = '請選擇模式', dzText = '然後上傳圖片';
+            const singleImageModes = ['crop', 'split', 'slice-v', 'slice-h'], multiImageModes = ['merge-h', 'merge-v'];
+            
+            if (state.mode) {
+                if (singleImageModes.includes(state.mode)) dzText = '請上傳 1 張圖片';
+                if (multiImageModes.includes(state.mode)) dzText = '請上傳 2 張或更多圖片';
+
+                const modeConfig = {
+                    'merge-h': { title: '橫向合併設定', dz: '橫向合併', control: 'merge-controls' },
+                    'merge-v': { title: '直向合併設定', dz: '直向合併', control: 'merge-controls' },
+                    'crop': { title: '裁切設定', dz: '智慧裁切', control: 'crop-controls' },
+                    'split': { title: '九宮格分割設定', dz: '九宮格分割', control: 'split-controls' },
+                    'slice-v': { title: '直向切片設定', dz: '直向切片合併', control: 'slice-controls' },
+                    'slice-h': { title: '橫向切片設定', dz: '橫向切片合併', control: 'slice-controls' },
+                };
+                const config = modeConfig[state.mode];
+                title = config.title; dzTitle = config.dz;
+                document.getElementById(config.control).style.display = 'flex';
+            }
+            controlsTitle.textContent = title; dropZoneTitle.textContent = dzTitle; dropZoneText.textContent = dzText;
+        }
+
+        function resetWorkspace() {
+            if (state.cropper) state.cropper.destroy();
+            Object.assign(state, { files: [], cropper: null, isPreviewing: false });
+            fileInput.value = '';
+            
+            dropZone.classList.remove('hidden');
+            imagePreviewContainer.classList.add('hidden');
+            canvasContainer.classList.add('hidden');
+            downloadBtn.disabled = true;
+
+            // Reset slice buttons
+            previewSliceBtn.classList.remove('hidden');
+            cancelSlicePreviewBtn.classList.add('hidden');
+            
+            ctx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
+        }
+
+        // Core Logic Functions
+        async function handleFiles(files) {
+            state.files = Array.from(files).filter(f => f.type.startsWith('image/'));
+            if (state.files.length === 0) { alert('請上傳有效的圖片檔案！'); return; }
+            showLoading(true);
+            
+            const singleImageModes = ['crop', 'split', 'slice-v', 'slice-h'];
+            if (singleImageModes.includes(state.mode)) {
+                if (state.files.length > 1) alert('此模式一次只能處理 1 張圖片。');
+                await initCropperOrPreview(state.files[0]);
+            } else { // Merge modes
+                if (state.files.length < 2) { alert('合併模式需要至少 2 張圖片。'); showLoading(false); return; }
+                await processMerge(state.mode === 'merge-h' ? 'horizontal' : 'vertical');
+            }
+            showLoading(false);
+        }
+
+        async function initCropperOrPreview(file) {
+            if (state.cropper) state.cropper.destroy();
+            imagePreview.src = URL.createObjectURL(file);
+            imagePreview.onload = () => {
+                dropZone.classList.add('hidden');
+                imagePreviewContainer.classList.remove('hidden');
+                
+                const needsCropper = ['crop', 'slice-v', 'slice-h'].includes(state.mode);
+                if (needsCropper) {
+                     state.cropper = new Cropper(imagePreview, {
+                        viewMode: 1, background: false,
+                        autoCrop: state.mode === 'crop', autoCropArea: 0.8,
+                    });
+                }
+                // Only enable download button immediately for non-slice modes
+                downloadBtn.disabled = ['slice-v', 'slice-h'].includes(state.mode);
+            };
+        }
+
+        async function processMerge(direction) {
+            const images = await Promise.all(state.files.map(file => loadImage(URL.createObjectURL(file))));
+            let totalWidth = 0, totalHeight = 0;
+            if (direction === 'horizontal') {
+                totalWidth = images.reduce((sum, img) => sum + img.width, 0);
+                mainCanvas.height = Math.max(...images.map(img => img.height));
+                mainCanvas.width = totalWidth;
+            } else {
+                totalHeight = images.reduce((sum, img) => sum + img.height, 0);
+                mainCanvas.width = Math.max(...images.map(img => img.width));
+                mainCanvas.height = totalHeight;
+            }
+            ctx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
+            let currentX = 0, currentY = 0;
+            images.forEach(img => { ctx.drawImage(img, currentX, currentY); if (direction === 'horizontal') currentX += img.width; else currentY += img.height; });
+            dropZone.classList.add('hidden');
+            canvasContainer.classList.remove('hidden');
+            downloadBtn.disabled = false;
+        }
+
+        async function showSlicePreview() {
+            if (!state.cropper || !state.cropper.getCropBoxData().width) {
+                alert('請先在圖片上拖曳一個有效的選取區域！');
+                return;
+            }
+            showLoading(true);
+            await processSliceAndMerge(state.mode === 'slice-v' ? 'vertical' : 'horizontal');
+            
+            state.isPreviewing = true;
+            imagePreviewContainer.classList.add('hidden');
+            canvasContainer.classList.remove('hidden');
+
+            previewSliceBtn.classList.add('hidden');
+            cancelSlicePreviewBtn.classList.remove('hidden');
+            downloadBtn.disabled = false;
+            showLoading(false);
+        }
+
+        function cancelSlicePreview() {
+            state.isPreviewing = false;
+            canvasContainer.classList.add('hidden');
+            imagePreviewContainer.classList.remove('hidden');
+
+            cancelSlicePreviewBtn.classList.add('hidden');
+            previewSliceBtn.classList.remove('hidden');
+            downloadBtn.disabled = true;
+        }
+
+        async function processSliceAndMerge(direction) {
+            const img = await loadImage(imagePreview.src);
+            const selection = state.cropper.getData({ rounded: true });
+            let newWidth, newHeight;
+            ctx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
+            
+            if (direction === 'vertical') {
+                newWidth = img.width - selection.width; newHeight = img.height;
+                mainCanvas.width = newWidth; mainCanvas.height = newHeight;
+                ctx.drawImage(img, 0, 0, selection.x, img.height, 0, 0, selection.x, img.height);
+                ctx.drawImage(img, selection.x + selection.width, 0, img.width - (selection.x + selection.width), img.height, selection.x, 0, img.width - (selection.x + selection.width), img.height);
+            } else {
+                newWidth = img.width; newHeight = img.height - selection.height;
+                mainCanvas.width = newWidth; mainCanvas.height = newHeight;
+                ctx.drawImage(img, 0, 0, img.width, selection.y, 0, 0, img.width, selection.y);
+                ctx.drawImage(img, 0, selection.y + selection.height, img.width, img.height - (selection.y + selection.height), 0, selection.y, img.width, img.height - (selection.y + selection.height));
+            }
+        }
+
+        async function handleDownload() {
+            if (downloadBtn.disabled) return;
+            showLoading(true);
+
+            let result, filename;
+            const format = exportFormatSelect.value;
+            const ext = format === 'jpeg' ? 'jpg' : format;
+
+            switch (state.mode) {
+                case 'merge-h': case 'merge-v':
+                    result = mainCanvas; filename = `merged-image.${ext}`; break;
+                case 'crop':
+                    result = state.cropper.getCroppedCanvas(); filename = `cropped-image.${ext}`; break;
+                case 'split':
+                    // Split logic needs to be self-contained for download
+                    const img = await loadImage(imagePreview.src);
+                    const cols = parseInt(document.getElementById('split-cols').value) || 1, rows = parseInt(document.getElementById('split-rows').value) || 1;
+                    if (document.getElementById('split-zip').checked) {
+                        const zip = new JSZip();
+                        const promises = [];
+                        for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+                            const tempCanvas = document.createElement('canvas'); tempCanvas.width = img.width / cols; tempCanvas.height = img.height / rows;
+                            const tempCtx = tempCanvas.getContext('2d');
+                            tempCtx.drawImage(img, c * (img.width/cols), r * (img.height/rows), img.width/cols, img.height/rows, 0, 0, tempCanvas.width, tempCanvas.height);
+                            promises.push(new Promise(res => tempCanvas.toBlob(b => { zip.file(`slice_${r+1}_${c+1}.${ext}`, b); res(); }, `image/${format}`, getQuality())));
+                        }
+                        await Promise.all(promises);
+                        result = await zip.generateAsync({type:"blob"}); filename = 'image-slices.zip';
+                    } else {
+                        mainCanvas.width = img.width; mainCanvas.height = img.height; ctx.drawImage(img, 0, 0);
+                        result = mainCanvas; filename = `gridded-image.${ext}`;
+                    }
+                    break;
+                case 'slice-v': case 'slice-h':
+                    if (state.isPreviewing) { result = mainCanvas; filename = `sliced-image.${ext}`; } 
+                    else { alert('請先預覽結果後再下載！'); showLoading(false); return; }
+                    break;
+            }
+            if (!result) { showLoading(false); return; }
+            if (result instanceof Blob) { triggerDownload(result, filename); } 
+            else { result.toBlob(blob => triggerDownload(blob, filename), `image/${format}`, getQuality()); }
+            showLoading(false);
+        }
+
+        // Helper Functions
+        function loadImage(src) { return new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; }); }
+        function getQuality() { return exportFormatSelect.value === 'png' ? undefined : parseInt(exportQualityInput.value) / 100; }
+        function triggerDownload(blob, filename) { const u = URL.createObjectURL(blob), a = document.createElement('a'); a.href = u; a.download = filename; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(u); }
+        function showLoading(show) { loadingOverlay.classList.toggle('hidden', !show); }
+    </script>
+</body>
+</html>
